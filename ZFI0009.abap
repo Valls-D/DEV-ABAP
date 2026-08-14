@@ -5122,6 +5122,7 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
         VALUE(rs_result) TYPE ty_result.
 
   PRIVATE SECTION.
+
     METHODS determine_context
       CHANGING
         cs_prov           TYPE zfieprov
@@ -5148,7 +5149,7 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
       CHANGING
         cs_prov     TYPE zfieprov
         cv_taxtype  TYPE dfkkbptaxnum-taxtype
-        cv_value    TYPE string
+        cv_value    TYPE CHAR18
         cv_extended TYPE abap_bool
         cs_data     TYPE cvis_ei_extern.
 
@@ -5300,13 +5301,11 @@ CLASS zcl_bp IMPLEMENTATION.
       SORT lt_addresses BY addr_valid_to DESCENDING.
 
       rs_context-address_guid =  lt_addresses[ 1 ]-address_guid.
-
       rs_context-address_task = gc_task_update.
 
     ELSE.
 
       rs_context-address_task = gc_task_insert.
-
       cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
       RECEIVING uuid = rs_context-address_guid ).
     ENDIF.
@@ -5354,7 +5353,7 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
 
     " Determinar altas / modificaciones
-    ls_context = determine_context( cs_prov = cs_prov ).
+    ls_context = determine_context( CHANGING cs_prov = cs_prov ).
 
     IF ls_context-valid = abap_false.
 
@@ -5476,25 +5475,22 @@ CLASS zcl_bp IMPLEMENTATION.
     " Datos generales
     " El proveedor siempre como organizacion -> BUT000-TYPE = 2
     IF cs_context-bp_task = gc_task_insert.
-
       cs_data-partner-central_data-common-data-bp_control-category = gc_bp_org.
       cs_data-partner-central_data-common-data-bp_control-grouping = cs_prov-bu_group.
-
     ENDIF.
 
-    cs_data-partner-central_data-common-data-bp_centraldata-grouping = cs_prov-bu_group.
+    cs_data-partner-central_data-common-data-bp_centraldata-partnertype = cs_prov-bu_group.
     cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = cs_prov-bu_group.
     cs_data-partner-central_data-common-data-bp_organization-name1 = cs_prov-name1.
     cs_data-partner-central_data-common-datax-bp_organization-name1 =  abap_true.
     cs_data-partner-central_data-common-data-bp_organization-name2 = cs_prov-name2.
     cs_data-partner-central_data-common-datax-bp_organization-name2 = abap_true.
-
     cs_data-partner-central_data-common-data-bp_centraldata-searchterm1 = cs_prov-busq.
     cs_data-partner-central_data-common-datax-bp_centraldata-searchterm1 = abap_true.
 
     cs_data-vendor-header-object_task = cs_context-vendor_task.
 
-    IF is_prov-partner IS NOT INITIAL.
+    IF cs_prov-partner IS NOT INITIAL.
       cs_data-vendor-header-object_instance-lifnr = cs_prov-partner.
     ENDIF.
     IF cs_prov-c_fisc_mx IS NOT INITIAL.
@@ -5502,7 +5498,7 @@ CLASS zcl_bp IMPLEMENTATION.
       cs_data-vendor-central_data-central-datax-konzs = abap_true.
     ENDIF.
 
-    IF is_prov-rcomp IS NOT INITIAL.
+    IF cs_prov-rcomp IS NOT INITIAL.
       cs_data-vendor-central_data-central-data-vbund = cs_prov-rcomp.
       cs_data-vendor-central_data-central-datax-vbund = abap_true.
     ENDIF.
@@ -5567,30 +5563,84 @@ CLASS zcl_bp IMPLEMENTATION.
   METHOD map_tax_numbers.
 
     FIELD-SYMBOLS: <fs_tax> TYPE bus_ei_bupa_taxnumber.
+    DATA: lv_taxtype1 TYPE dfkkbptaxnum-taxtype,
+          lv_taxtype3 TYPE dfkkbptaxnum-taxtype.
 
-    " NIF principal
-    " ZFIEPROV-CIF -> DFKKBPTAXNUM-TAXNUMXL
+    CHECK cs_prov-pais IS NOT INITIAL.
+
+    " NIF ZFIEPROV-CIF -> DFKKBPTAXNUM-TAXNUMXL
     IF cs_prov-cif IS NOT INITIAL.
-      APPEND INITIAL LINE TO cs_data-partner-central_data-taxnumber-taxnumbers ASSIGNING <fs_tax>.
-      <fs_tax>-task = cv_task.
       " RFC genérico extranjero de México
       IF cs_prov-cif = gc_rfc_ext_mx.
-        <fs_tax>-data_key-taxtype = 'MX1'.
+        lv_taxtype1 = 'MX1'.
       ELSE.
-        <fs_tax>-data_key-taxtype = |{ cs_prov-pais }1|.
+        lv_taxtype1 = |{ cs_prov-pais }1|.
       ENDIF.
-      <fs_tax>-data_key-taxnumxl = cs_prov-cif.
+
+      map_tax_number(
+      CHANGING
+        cs_prov     = cs_prov
+        cv_taxtype  = lv_taxtype1
+        cv_value    = cs_prov-cif
+        cv_extended = abap_true
+        cs_data     = cs_data ).
     ENDIF.
 
-    "---------------------------------------------------------------
-    " NIF3
-    " ZFIEPROV-STCD3 -> DFKKBPTAXNUM-TAXNUM
-    "---------------------------------------------------------------
+    " NIF3 ZFIEPROV-STCD3 -> DFKKBPTAXNUM-TAXNUM
     IF cs_prov-stcd3 IS NOT INITIAL.
+
+      lv_taxtype1 = |{ cs_prov-pais }3|.
+
+      map_tax_number(
+      CHANGING
+        cs_prov     = cs_prov
+        cv_taxtype  = lv_taxtype3
+        cv_value    = cs_prov-stcd3
+        cv_extended = abap_false
+        cs_data     = cs_data ).
+    ENDIF.
+
+  ENDMETHOD.
+
+*--------------------------------------------------------------------*
+*& PARTNER - CENTRAL_DATA - TAXNUMBER - SINGLE TAX NUMBER
+*--------------------------------------------------------------------*
+  METHOD map_tax_number.
+
+    FIELD-SYMBOLS: <fs_tax> TYPE bus_ei_bupa_taxnumber.
+
+    DATA: lv_task      TYPE c LENGTH 1,
+          lv_old_value TYPE string.
+
+    " Comprobar si esa categoría fiscal ya existe para el BP
+    " La clave funcional es:  PARTNER + TAXTYPE
+    IF cs_prov-partner IS NOT INITIAL.
+
+      SELECT SINGLE @abap_true
+      FROM dfkkbptaxnum
+      WHERE partner = @cs_prov-partner
+      AND taxtype = @cv_taxtype
+      INTO @DATA(lv_exists).
+
+      IF sy-subrc = 0.
+        lv_task = gc_task_update.
+      ENDIF.
+
       APPEND INITIAL LINE TO cs_data-partner-central_data-taxnumber-taxnumbers ASSIGNING <fs_tax>.
-      <fs_tax>-task = cv_task.
-      <fs_tax>-data_key-taxtype = |{ cs_prov-pais }3|.
-      <fs_tax>-data_key-taxnumber = cs_prov-stcd3.
+
+      <fs_tax>-task = lv_task.
+
+      <fs_tax>-data_key-taxtype = cv_taxtype.
+
+      IF cv_extended = abap_true.
+
+        " Número de identificación fiscal ZFIEPROV-CIF -> TAXNUMXL
+        <fs_tax>-data_key-taxnumxl = cv_value.
+      ELSE.
+
+        " NIF3 ZFIEPROV-STCD3 -> TAXNUMBER
+        <fs_tax>-data_key-taxnumber = cv_value.
+      ENDIF.
     ENDIF.
 
   ENDMETHOD.
@@ -5685,8 +5735,8 @@ CLASS zcl_bp IMPLEMENTATION.
 *--------------------------------------------------------------------*
   METHOD map_industry.
 
-    FIELD-SYMBOLS:
-    <fs_industry> TYPE bus_ei_bupa_industrysector.
+    FIELD-SYMBOLS: <fs_industry> TYPE bus_ei_bupa_industrysector.
+    DATA: lv_task TYPE c LENGTH 1.
 
     CHECK cs_prov-brsch IS NOT INITIAL.
 
@@ -5697,12 +5747,31 @@ CLASS zcl_bp IMPLEMENTATION.
     INTO @DATA(lv_istype).
 
     IF sy-subrc = 0.
-      APPEND INITIAL LINE TO cs_data-partner-central_data-industry-industries ASSIGNING <fs_industry>.
+      " BP NUEVO
+      lv_task = gc_task_insert.
 
-      <fs_industry>-task = cv_task.
-      <fs_industry>-data_key-keysystem = lv_istype. " Sector industrial
-      <fs_industry>-data_key-ind_sector = cs_prov-brsch. " Ramo
-      <fs_industry>-data-ind_default =  abap_true.
+      " Comprobar si el BP ya tiene asignado ese mismo ramo
+      IF cs_prov-partner IS NOT INITIAL.
+
+        SELECT SINGLE @abap_true
+        FROM but0is
+        WHERE partner = @cs_prov-partner
+        AND istype = @lv_istype
+        AND ind_sector = @cs_prov-brsch
+        INTO @DATA(lv_exists).
+
+        IF sy-subrc = 0.
+          lv_task = gc_task_update.
+        ENDIF.
+      ENDIF.
+
+      APPEND INITIAL LINE  TO cs_data-partner-central_data-industry-industries ASSIGNING <fs_industry>.
+
+      <fs_industry>-task = lv_task.
+      <fs_industry>-data_key-keysystem = lv_istype.
+      <fs_industry>-data_key-ind_sector = cs_prov-brsch.
+      " el ramo informado debe ser el ramo estándar.
+      <fs_industry>-data-ind_default = abap_true.
       <fs_industry>-datax-ind_default = abap_true.
     ENDIF.
   ENDMETHOD.
@@ -5776,7 +5845,6 @@ CLASS zcl_bp IMPLEMENTATION.
 
   ENDMETHOD.
 
-
 *--------------------------------------------------------------------*
 *& VENDOR - COMPANY_DATA - COMPANY
 *--------------------------------------------------------------------*
@@ -5841,7 +5909,6 @@ CLASS zcl_bp IMPLEMENTATION.
     map_withholding_tax(
     CHANGING
       cs_prov = cs_prov
-      cv_task = cv_task
       cs_company =  <fs_company> ).
 
   ENDMETHOD.
@@ -5852,6 +5919,7 @@ CLASS zcl_bp IMPLEMENTATION.
   METHOD map_withholding_tax.
 
     FIELD-SYMBOLS: <fs_wtax> TYPE vmds_ei_wtax_type.
+    DATA: lv_task TYPE c LENGTH 1.
 
     " La validación previa de ZFI0009 controla:
     " PAIS_R + WITHT + WT_WITHCD estén todos informados o todos vacíos
@@ -5859,7 +5927,7 @@ CLASS zcl_bp IMPLEMENTATION.
     AND cs_prov-witht IS NOT INITIAL
     AND cs_prov-wt_withcd IS NOT INITIAL.
 
-    cv_task = gc_task_insert.
+    lv_task = gc_task_insert.
     IF cs_prov-partner IS NOT INITIAL.
 
       SELECT SINGLE @abap_true FROM lfbw
@@ -5868,13 +5936,13 @@ CLASS zcl_bp IMPLEMENTATION.
       AND witht = @cs_prov-witht
       INTO @DATA(lv_exists).
       IF sy-subrc = 0.
-        cv_task = gc_task_update.
+        lv_task = gc_task_update.
       ENDIF.
     ENDIF.
 
     APPEND INITIAL LINE TO cs_company-wtax_type-wtax_type ASSIGNING <fs_wtax>.
 
-    <fs_wtax>-task = cv_task.
+    <fs_wtax>-task = lv_task.
 
     " Tipo de retención ZFIEPROV-WITHT
     <fs_wtax>-data_key-witht = cs_prov-witht.
@@ -5937,7 +6005,6 @@ CLASS zcl_bp IMPLEMENTATION.
     map_purchasing_functions(
     CHANGING
       cs_prov = cs_prov
-      cv_task = cv_task
       cs_purchasing = <fs_purchasing> ).
 
   ENDMETHOD.
@@ -5949,7 +6016,7 @@ CLASS zcl_bp IMPLEMENTATION.
 
     FIELD-SYMBOLS: <fs_function> TYPE vmds_ei_functions.
     DATA: lv_parvw TYPE parvw,
-          lt_wyt3  TYPE STANDARD TABLE OF wyt3.
+          lt_wyt3  TYPE TABLE OF wyt3.
 
     " Funciones de interlocutor utilizadas por el proceso antiguo
     DATA(lt_functions) = VALUE string_table(
