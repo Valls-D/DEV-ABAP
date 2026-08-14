@@ -5122,30 +5122,41 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
         VALUE(rs_result) TYPE ty_result.
 
   PRIVATE SECTION.
+    METHODS determine_context
+      CHANGING
+        cs_prov           TYPE zfieprov
+      RETURNING
+        VALUE(rs_context) TYPE ty_context.
 
     METHODS map_bp_data
       CHANGING
-        cs_prov TYPE zfieprov
-        cv_task TYPE c
-        cs_data TYPE cvis_ei_extern.
+        cs_prov    TYPE zfieprov
+        cs_context TYPE ty_context
+        cs_data    TYPE cvis_ei_extern.
 
     METHODS map_roles
       CHANGING
         cs_prov TYPE zfieprov
-        cv_task TYPE c
         cs_data TYPE cvis_ei_extern.
 
     METHODS map_tax_numbers
       CHANGING
         cs_prov TYPE zfieprov
-        cv_task TYPE c
         cs_data TYPE cvis_ei_extern.
+
+    METHODS map_tax_number
+      CHANGING
+        cs_prov     TYPE zfieprov
+        cv_taxtype  TYPE dfkkbptaxnum-taxtype
+        cv_value    TYPE string
+        cv_extended TYPE abap_bool
+        cs_data     TYPE cvis_ei_extern.
 
     METHODS map_bp_address
       CHANGING
-        cs_prov TYPE zfieprov
-        cv_task TYPE c
-        cs_data TYPE cvis_ei_extern.
+        cs_prov    TYPE zfieprov
+        cs_context TYPE ty_context
+        cs_data    TYPE cvis_ei_extern.
 
     METHODS map_bp_communication
       CHANGING
@@ -5156,21 +5167,18 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
     METHODS map_industry
       CHANGING
         cs_prov TYPE zfieprov
-        cv_task TYPE c
         cs_data TYPE cvis_ei_extern.
+
+    METHODS map_bank_data
+      CHANGING
+        cs_prov    TYPE zfieprov
+        cs_context TYPE ty_context
+        cs_data    TYPE cvis_ei_extern.
 
     METHODS map_withholding_tax
       CHANGING
         cs_prov    TYPE zfieprov
-        cv_task    TYPE c
         cs_company TYPE vmds_ei_company.
-
-    METHODS map_bank_data
-      CHANGING
-        cs_prov TYPE zfieprov
-        cv_task TYPE c
-        cs_data TYPE cvis_ei_extern.
-
 
     METHODS map_company_data
       CHANGING
@@ -5187,7 +5195,6 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
     METHODS map_purchasing_functions
       CHANGING
         cs_prov       TYPE zfieprov
-        cv_task       TYPE c
         cs_purchasing TYPE vmds_ei_purchasing.
 
     METHODS call_api
@@ -5198,117 +5205,219 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
 
     METHODS evaluate_return
       IMPORTING
-        it_return TYPE bapiretm
-      CHANGING
-        cs_prov   TYPE zfieprov
-        cs_result TYPE ty_result.
+        it_return        TYPE bapiretm
+      RETURNING
+        VALUE(cs_result) TYPE ty_result.
 
 ENDCLASS.
 CLASS zcl_bp IMPLEMENTATION.
 
+  METHOD determine_context.
+
+    rs_context-valid = abap_true.
+
+    " BP NUEVO
+    IF cs_prov-partner IS INITIAL.
+
+      rs_context-bp_task         = gc_task_insert.
+      rs_context-vendor_task     = gc_task_insert.
+      rs_context-address_task    = gc_task_insert.
+      rs_context-company_task    = gc_task_insert.
+      rs_context-purchasing_task = gc_task_insert.
+
+      " GUID técnico del nuevo BP
+      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
+      RECEIVING uuid = rs_context-partner_guid ).
+
+      " GUID de la dirección estándar
+      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
+      RECEIVING uuid = rs_context-address_guid ).
+
+      RETURN.
+    ENDIF.
+
+    " BP EXISTENTE
+    SELECT SINGLE  partner_guid, bu_group
+    FROM but000
+    WHERE partner = @cs_prov-partner
+    INTO @DATA(ls_but000).
+
+    IF sy-subrc <> 0.
+      rs_context-valid = abap_false.
+      rs_context-message = |El Business Partner { cs_prov-partner } NO existe|.
+
+      RETURN.
+    ENDIF.
+
+    rs_context-bp_task      = gc_task_update.
+    rs_context-partner_guid = ls_but000-partner_guid.
+
+    " La agrupación de un BP existente no se cambia
+    IF cs_prov-bu_group IS NOT INITIAL
+    AND ls_but000-bu_group <> cs_prov-bu_group.
+
+      rs_context-valid = abap_false.
+
+      rs_context-message = |El BP { cs_prov-partner } pertenece a la agrupación | &&
+      |{ ls_but000-bu_group }, NO a { cs_prov-bu_group }|.
+
+      RETURN.
+    ENDIF.
+
+    " Supplier existente o nueva extensión Supplier
+    SELECT SINGLE ktokk FROM lfa1
+    WHERE lifnr = @cs_prov-partner
+    INTO @DATA(lv_ktokk).
+
+    IF sy-subrc = 0.
+
+      rs_context-vendor_task = gc_task_update.
+
+      " El grupo de cuentas tampoco debe cambiarse silenciosamente
+      IF cs_prov-bu_group IS NOT INITIAL AND lv_ktokk <> cs_prov-bu_group.
+
+        rs_context-valid = abap_false.
+
+        rs_context-message = |El proveedor { cs_prov-partner } tiene grupo de cuentas | &&
+        |{ lv_ktokk }, NO { cs_prov-bu_group }|.
+
+        RETURN.
+      ENDIF.
+
+    ELSE.
+      " BP existe, pero todavía no existe como Supplier
+      rs_context-vendor_task = gc_task_insert.
+    ENDIF.
+
+    " Dirección actual
+    SELECT address_guid, addr_valid_to
+    FROM but020
+    WHERE partner = @cs_prov-partner
+    INTO TABLE @DATA(lt_addresses).
+
+    IF lt_addresses IS NOT INITIAL.
+
+      SORT lt_addresses BY addr_valid_to DESCENDING.
+
+      rs_context-address_guid =  lt_addresses[ 1 ]-address_guid.
+
+      rs_context-address_task = gc_task_update.
+
+    ELSE.
+
+      rs_context-address_task = gc_task_insert.
+
+      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
+      RECEIVING uuid = rs_context-address_guid ).
+    ENDIF.
+
+    " Sociedad
+    IF cs_prov-bukrs IS NOT INITIAL.
+
+      SELECT SINGLE @abap_true FROM lfb1
+      WHERE lifnr = @cs_prov-partner
+      AND bukrs = @cs_prov-bukrs
+      INTO @DATA(lv_company_exists).
+
+      rs_context-company_task = COND #(
+      WHEN sy-subrc = 0
+      THEN gc_task_update
+      ELSE gc_task_insert ).
+
+    ENDIF.
+
+    " Organización de compras
+    IF cs_prov-ekorg IS NOT INITIAL.
+
+      SELECT SINGLE @abap_true FROM lfm1
+      WHERE lifnr = @cs_prov-partner
+      AND ekorg = @cs_prov-ekorg
+      INTO @DATA(lv_purchasing_exists).
+
+      rs_context-purchasing_task = COND #(
+      WHEN sy-subrc = 0
+      THEN gc_task_update
+      ELSE gc_task_insert ).
+
+    ENDIF.
+
+  ENDMETHOD.
+
   METHOD maintain_bp.
     DATA:
-      ls_data            TYPE cvis_ei_extern,
-      lv_task            TYPE c LENGTH 1,
-      lv_company_task    TYPE c LENGTH 1,
-      lv_purchasing_task TYPE c LENGTH 1.
+      ls_data    TYPE cvis_ei_extern,
+      ls_context TYPE ty_context.
 
-    " Determinar si estamos creando o modificando un BP
-    lv_task =
-    COND #( WHEN cs_prov-partner IS INITIAL
-    THEN gc_task_insert
-    ELSE gc_task_update ).
+    " Normalizar PARTNER si viene informado
+    IF cs_prov-partner IS NOT INITIAL.
+      cs_prov-partner = |{ cs_prov-partner ALPHA = IN }|.
+    ENDIF.
+
+    " Determinar altas / modificaciones
+    ls_context = determine_context( cs_prov = cs_prov ).
+
+    IF ls_context-valid = abap_false.
+
+      rs_result-success = abap_false.
+      rs_result-message = ls_context-message.
+
+      RETURN.
+    ENDIF.
 
     " Datos centrales
     map_bp_data(
     CHANGING
       cs_prov = cs_prov
-      cv_task = lv_task
+      cs_context = ls_context
       cs_data = ls_data ).
 
     " Roles FLVN00 / FLVN01
     map_roles(
     CHANGING
       cs_prov = cs_prov
-      cv_task = lv_task
       cs_data = ls_data ).
 
     " Números fiscales - CIF
     map_tax_numbers(
     CHANGING
       cs_prov = cs_prov
-      cv_task = lv_task
       cs_data = ls_data ).
 
     " Direccion
     map_bp_address(
     CHANGING
       cs_prov = cs_prov
-      cv_task = lv_task
+      cs_context = ls_context
       cs_data = ls_data ).
 
     " Industria
     map_industry(
     CHANGING
       cs_prov = cs_prov
-      cv_task = lv_task
       cs_data = ls_data ).
 
     " Banco
     map_bank_data(
     CHANGING
       cs_prov = cs_prov
-      cv_task = lv_task
+      cs_context = ls_context
       cs_data = ls_data ).
 
     " Datos dependientes de sociedad (FLVN00)
     IF cs_prov-bukrs IS NOT INITIAL.
-
-      IF cs_prov-partner IS INITIAL.
-        lv_company_task = gc_task_insert.
-      ELSE.
-
-        SELECT SINGLE @abap_true FROM lfb1
-        WHERE lifnr = @cs_prov-partner
-        AND bukrs = @cs_prov-bukrs
-        INTO @DATA(lv_company_exists).
-
-        lv_company_task =
-        COND #( WHEN sy-subrc = 0
-        THEN gc_task_update
-        ELSE gc_task_insert ).
-
-      ENDIF.
-
       map_company_data(
       CHANGING
         cs_prov = cs_prov
-        cv_task = lv_company_task
+        cv_task = ls_context-company_task
         cs_data = ls_data ).
     ENDIF.
 
     " Datos de organización de compras (FLVN01)
     IF cs_prov-ekorg IS NOT INITIAL.
-      IF cs_prov-partner IS INITIAL.
-        lv_purchasing_task = gc_task_insert.
-      ELSE.
-
-        SELECT SINGLE @abap_true
-        FROM lfm1
-        WHERE lifnr = @cs_prov-partner
-        AND ekorg = @cs_prov-ekorg
-        INTO @DATA(lv_purchasing_exists).
-
-        lv_purchasing_task =
-        COND #( WHEN sy-subrc = 0
-        THEN gc_task_update
-        ELSE gc_task_insert ).
-
-      ENDIF.
       map_purchasing_data(
       CHANGING
         cs_prov = cs_prov
-        cv_task = lv_purchasing_task
+        cv_task = ls_context-purchasing_task
         cs_data = ls_data ).
     ENDIF.
 
@@ -5316,12 +5425,37 @@ CLASS zcl_bp IMPLEMENTATION.
     rs_result-return = call_api( ls_data ).
 
     " El tratamiento de mensajes
-    evaluate_return(
-    EXPORTING
-      it_return = rs_result-RETURN
-    CHANGING
-      cs_prov   = cs_prov
-      cs_result = rs_result ).
+    rs_result = evaluate_return( it_return = rs_result-return ).
+
+    IF rs_result-success = abap_true.
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+
+      " BP nuevo: recuperar número generado
+      IF cs_prov-partner IS INITIAL.
+
+        IF rs_result-partner IS INITIAL.
+
+          SELECT SINGLE partner FROM but000
+          WHERE partner_guid = @ls_context-partner_guid
+          INTO @rs_result-partner.
+        ENDIF.
+
+        IF rs_result-partner IS NOT INITIAL.
+          cs_prov-partner = rs_result-partner.
+        ELSE.
+          rs_result-success = abap_false.
+          rs_result-message = 'El BP fue procesado pero no se pudo recuperar el número generado'.
+        ENDIF.
+
+      ELSE.
+        rs_result-partner = cs_prov-partner.
+      ENDIF.
+    ELSE.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+    ENDIF.
+
   ENDMETHOD.
 
 *--------------------------------------------------------------------*
@@ -5331,7 +5465,8 @@ CLASS zcl_bp IMPLEMENTATION.
   METHOD map_bp_data.
 
     " Cabecera
-    cs_data-partner-header-object_task = cv_task.
+    cs_data-partner-header-object_task = cs_context-bp_task.
+    cs_data-partner-header-object_instance-bpartnerguid = cs_context-partner_guid.
 
     " Business Partner
     IF cs_prov-partner IS NOT INITIAL.
@@ -5340,13 +5475,22 @@ CLASS zcl_bp IMPLEMENTATION.
 
     " Datos generales
     " El proveedor siempre como organizacion -> BUT000-TYPE = 2
-    cs_data-partner-central_data-common-data-bp_control-category = gc_bp_org.
-    cs_data-partner-central_data-common-data-bp_control-grouping = cs_prov-bu_group.
-    cs_data-partner-central_data-common-data-bp_centraldata-partnertype = cs_prov-bu_group.
+    IF cs_context-bp_task = gc_task_insert.
+
+      cs_data-partner-central_data-common-data-bp_control-category = gc_bp_org.
+      cs_data-partner-central_data-common-data-bp_control-grouping = cs_prov-bu_group.
+
+    ENDIF.
+
+    cs_data-partner-central_data-common-data-bp_centraldata-grouping = cs_prov-bu_group.
+    cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = cs_prov-bu_group.
     cs_data-partner-central_data-common-data-bp_organization-name1 = cs_prov-name1.
     cs_data-partner-central_data-common-datax-bp_organization-name1 =  abap_true.
     cs_data-partner-central_data-common-data-bp_organization-name2 = cs_prov-name2.
     cs_data-partner-central_data-common-datax-bp_organization-name2 = abap_true.
+
+    cs_data-partner-central_data-common-data-bp_centraldata-searchterm1 = cs_prov-busq.
+    cs_data-partner-central_data-common-datax-bp_centraldata-searchterm1 = abap_true.
 
     IF cs_prov-stkzn IS NOT INITIAL.
       cs_data-vendor-central_data-central-data-stkzn = cs_prov-stkzn.
@@ -5359,21 +5503,45 @@ CLASS zcl_bp IMPLEMENTATION.
 *& PARTNER - CENTRAL_DATA - ROLE
 *--------------------------------------------------------------------*
   METHOD map_roles.
-    FIELD-SYMBOLS:
-   <fs_role> TYPE bus_ei_bupa_roles.
+    FIELD-SYMBOLS: <fs_role> TYPE bus_ei_bupa_roles.
+    DATA: lv_role_exists TYPE abap_bool VALUE abap_false.
 
     " FLVN00 - Acreedor <=> Sociedad
     IF cs_prov-bukrs IS NOT INITIAL.
-      APPEND INITIAL LINE TO cs_data-partner-central_data-role-roles ASSIGNING <fs_role>.
-      <fs_role>-task     = cv_task.
-      <fs_role>-data_key = gc_role_flvn00.
+      IF cs_prov-partner IS NOT INITIAL.
+
+        SELECT SINGLE @abap_true FROM but100
+        WHERE partner = @cs_prov-partner
+        AND rltyp   = @gc_role_flvn00
+        INTO @lv_role_exists.
+
+      ENDIF.
+
+      IF lv_role_exists = abap_false.
+        APPEND INITIAL LINE TO cs_data-partner-central_data-role-roles ASSIGNING <fs_role>.
+        <fs_role>-task     = gc_task_insert.
+        <fs_role>-data_key = gc_role_flvn00.
+      ENDIF.
     ENDIF.
 
+    CLEAR: lv_role_exists.
     " FLVN01 - Proveedor <=> Organización de Compras
     IF cs_prov-ekorg IS NOT INITIAL.
-      APPEND INITIAL LINE TO  cs_data-partner-central_data-role-roles ASSIGNING <fs_role>.
-      <fs_role>-task     = cv_task.
-      <fs_role>-data_key = gc_role_flvn01.
+      IF cs_prov-partner IS NOT INITIAL.
+
+        SELECT SINGLE @abap_true
+        FROM but100
+        WHERE partner = @cs_prov-partner
+        AND rltyp   = @gc_role_flvn01
+        INTO @lv_role_exists.
+
+      ENDIF.
+
+      IF lv_role_exists = abap_false.
+        APPEND INITIAL LINE TO  cs_data-partner-central_data-role-roles ASSIGNING <fs_role>.
+        <fs_role>-task     = gc_task_insert.
+        <fs_role>-data_key = gc_role_flvn01.
+      ENDIF.
     ENDIF.
 
   ENDMETHOD.
@@ -5383,8 +5551,7 @@ CLASS zcl_bp IMPLEMENTATION.
 *--------------------------------------------------------------------*
   METHOD map_tax_numbers.
 
-    FIELD-SYMBOLS:
-    <fs_tax> TYPE bus_ei_bupa_taxnumber.
+    FIELD-SYMBOLS: <fs_tax> TYPE bus_ei_bupa_taxnumber.
 
     " NIF principal
     " ZFIEPROV-CIF -> DFKKBPTAXNUM-TAXNUMXL
@@ -5418,21 +5585,29 @@ CLASS zcl_bp IMPLEMENTATION.
 *--------------------------------------------------------------------*
   METHOD map_bp_address.
 
-    DATA:
-    lv_langu_iso TYPE laiso.
-    FIELD-SYMBOLS:
-   <fs_address> TYPE bus_ei_bupa_address.
+    DATA: lv_langu_iso TYPE laiso.
+    FIELD-SYMBOLS: <fs_address> TYPE bus_ei_bupa_address.
 
     APPEND INITIAL LINE TO cs_data-partner-central_data-address-addresses ASSIGNING <fs_address>.
-    <fs_address>-task = cv_task.
+    <fs_address>-task =  cs_context-address_task.
+    <fs_address>-data_key-guid = cs_context-address_guid.
+    <fs_address>-data_key-operation = 'XXDFLT'.
+
 
     <fs_address>-data-postal-data-city = cs_prov-poblac.
+    <fs_address>-data-postal-DATAx-city = abap_true.
     <fs_address>-data-postal-data-street = cs_prov-direc.
+    <fs_address>-data-postal-DATAx-street = abap_true.
     <fs_address>-data-postal-data-str_suppl1 = cs_prov-direc_2.
+    <fs_address>-data-postal-DATAx-str_suppl1 = abap_true.
     <fs_address>-data-postal-data-postl_cod1 = cs_prov-cod_post.
+    <fs_address>-data-postal-DATAx-postl_cod1 = abap_true.
     <fs_address>-data-postal-data-region = cs_prov-region.
+    <fs_address>-data-postal-DATAx-region = abap_true.
     <fs_address>-data-postal-data-country = cs_prov-pais.
+    <fs_address>-data-postal-DATAx-country = abap_true.
     <fs_address>-data-postal-data-langu = cs_prov-spras.
+    <fs_address>-data-postal-DATAx-langu = abap_true.
 
     IF cs_prov-spras IS NOT INITIAL.
       CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
@@ -5441,26 +5616,17 @@ CLASS zcl_bp IMPLEMENTATION.
         IMPORTING
           output = lv_langu_iso.
 
-      <fs_address>-data-postal-data-languiso = lv_langu_iso.
+      IF lv_langu_iso IS NOT INITIAL.
+        <fs_address>-data-postal-data-languiso = lv_langu_iso.
+        <fs_address>-data-postal-datax-langu_iso = abap_true.
+      ENDIF.
     ENDIF.
-
-    <fs_address>-data-postal-DATAx-city = abap_true.
-    <fs_address>-data-postal-DATAx-street = abap_true.
-    <fs_address>-data-postal-DATAx-str_suppl1 = abap_true.
-    <fs_address>-data-postal-DATAx-postl_cod1 = abap_true.
-    <fs_address>-data-postal-DATAx-region = abap_true.
-    <fs_address>-data-postal-DATAx-country = abap_true.
-    <fs_address>-data-postal-DATAx-langu = abap_true.
-    IF lv_langu_iso IS NOT INITIAL.
-      <fs_address>-data-postal-datax-langu_iso = abap_true.
-    ENDIF.
-
 
     "Comunicacion
     map_bp_communication(
     CHANGING
       cs_prov = cs_prov
-      cv_task = cv_task
+      cv_task = cs_context-address_task
      cs_address = <fs_address> ).
   ENDMETHOD.
 
@@ -5469,12 +5635,12 @@ CLASS zcl_bp IMPLEMENTATION.
 *--------------------------------------------------------------------*
   METHOD map_bp_communication.
 
-    FIELD-SYMBOLS:
-      <fs_phone> TYPE bus_ei_bupa_telephone,
-      <fs_fax>   TYPE bus_ei_bupa_fax,
-      <fs_smtp>  TYPE bus_ei_bupa_smtp.
+    FIELD-SYMBOLS: <fs_phone> TYPE bus_ei_bupa_telephone,
+                   <fs_fax>   TYPE bus_ei_bupa_fax,
+                   <fs_smtp>  TYPE bus_ei_bupa_smtp.
 
     IF cs_prov-tel IS NOT INITIAL.
+      cs_address-data-communication-phone-current_state = abap_true.
       APPEND INITIAL LINE TO cs_address-data-communication-phone-phone ASSIGNING <fs_phone>.
       <fs_phone>-contact-task = cv_task.
       <fs_phone>-contact-data-telephone = cs_prov-tel.
@@ -5482,6 +5648,7 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
 
     IF cs_prov-fax IS NOT INITIAL.
+      cs_address-data-communication-fax-current_state = abap_true.
       APPEND INITIAL LINE TO cs_address-data-communication-fax-fax ASSIGNING <fs_fax>.
       <fs_fax>-contact-task = cv_task.
       <fs_fax>-contact-data-fax = cs_prov-fax.
@@ -5489,21 +5656,118 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
 
     IF cs_prov-smtp IS NOT INITIAL.
+      cs_address-data-communication-smtp-current_state = abap_true.
       APPEND INITIAL LINE TO cs_address-data-communication-smtp-smtp ASSIGNING <fs_smtp>.
       <fs_smtp>-contact-task = cv_task.
       <fs_smtp>-contact-data-e_mail = cs_prov-smtp.
       <fs_smtp>-contact-DATAx-e_mail = abap_true.
     ENDIF.
+    "si pasa de lleno a vacio los datos, hay que plantear ese proceso
+  ENDMETHOD.
+
+*--------------------------------------------------------------------*
+*& PARTNER - CENTRAL_DATA - INDUSTRY - INDUSTRIES
+*--------------------------------------------------------------------*
+  METHOD map_industry.
+
+    FIELD-SYMBOLS:
+    <fs_industry> TYPE bus_ei_bupa_industrysector.
+
+    CHECK cs_prov-brsch IS NOT INITIAL.
+
+    " Determinar el sistema de industrias al que pertenece el ramo.
+    SELECT SINGLE istype
+    FROM tb038a
+    WHERE ind_sector = @cs_prov-brsch
+    INTO @DATA(lv_istype).
+
+    IF sy-subrc = 0.
+      APPEND INITIAL LINE TO cs_data-partner-central_data-industry-industries ASSIGNING <fs_industry>.
+
+      <fs_industry>-task = cv_task.
+      <fs_industry>-data_key-keysystem = lv_istype. " Sector industrial
+      <fs_industry>-data_key-ind_sector = cs_prov-brsch. " Ramo
+      <fs_industry>-data-ind_default =  abap_true.
+      <fs_industry>-datax-ind_default = abap_true.
+    ENDIF.
+  ENDMETHOD.
+
+*--------------------------------------------------------------------*
+*& PARTNER - CENTRAL_DATA - BANKDETAIL
+*--------------------------------------------------------------------*
+  METHOD map_bank_data.
+
+    FIELD-SYMBOLS: <fs_bankdetail> TYPE bus_ei_bupa_bankdetail.
+    DATA lv_iban TYPE iban.
+
+    " El programa anterior únicamente informaba los datos bancarios durante la migración 3
+    CHECK cs_prov-migr = 3. "Ver si funcionalmente sigue siendo valido
+    CHECK cs_context-bp_task = gc_task_insert.
+
+    " Crear detalle bancario del Business Partner
+    APPEND INITIAL LINE TO cs_data-partner-central_data-bankdetail-bankdetails ASSIGNING <fs_bankdetail>.
+
+    <fs_bankdetail>-task =   gc_task_insert.
+
+    " País del banco ZFIEPROV-LAND1
+    IF cs_prov-land1 IS NOT INITIAL.
+      <fs_bankdetail>-data-bank_ctry  = cs_prov-land1.
+      <fs_bankdetail>-datax-bank_ctry = abap_true.
+    ENDIF.
+
+    " Clave del banco ZFIEPROV-BANKK
+    IF cs_prov-bankk IS NOT INITIAL.
+      <fs_bankdetail>-data-bank_key  = cs_prov-bankk.
+      <fs_bankdetail>-datax-bank_key = abap_true.
+    ENDIF.
+
+    " Número de cuenta bancaria ZFIEPROV-BANKN
+    IF cs_prov-bankn IS NOT INITIAL.
+      <fs_bankdetail>-data-bank_acct  = cs_prov-bankn.
+      <fs_bankdetail>-datax-bank_acct = abap_true.
+    ENDIF.
+
+    " Clave de control bancaria ZFIEPROV-BKONT
+    IF cs_prov-bkont IS NOT INITIAL.
+      <fs_bankdetail>-data-ctrl_key  = cs_prov-bkont.
+      <fs_bankdetail>-datax-ctrl_key = abap_true.
+    ENDIF.
+
+    " Titular de la cuenta.
+    " El BDC informa siempre LFBK-KOINH = 'TIT'.
+    <fs_bankdetail>-data-accountholder  = 'TIT'.
+    <fs_bankdetail>-datax-accountholder = abap_true.
+
+    " IBAN
+    " El programa anterior almacenaba el IBAN dividido en nueve
+    " campos por limitaciones de la dynpro. La estructura BP recibe
+    " directamente el IBAN completo
+    IF cs_prov-iban01 IS NOT INITIAL.
+
+      CONCATENATE
+      cs_prov-iban01 cs_prov-iban02
+      cs_prov-iban03 cs_prov-iban04
+      cs_prov-iban05 cs_prov-iban06
+      cs_prov-iban07 cs_prov-iban08
+      cs_prov-iban09 INTO lv_iban.
+
+      " Eliminar posibles espacios del IBAN
+      CONDENSE lv_iban NO-GAPS.
+
+      <fs_bankdetail>-data-iban  = lv_iban.
+      <fs_bankdetail>-datax-iban = abap_true.
+
+    ENDIF.
 
   ENDMETHOD.
+
 
 *--------------------------------------------------------------------*
 *& VENDOR - COMPANY_DATA - COMPANY
 *--------------------------------------------------------------------*
   METHOD map_company_data.
 
-    FIELD-SYMBOLS:
-    <fs_company> TYPE vmds_ei_company.
+    FIELD-SYMBOLS: <fs_company> TYPE vmds_ei_company.
 
     " Los datos de sociedad solo existen cuando se informa BUKRS.
     CHECK cs_prov-bukrs IS NOT INITIAL.
@@ -5568,134 +5832,44 @@ CLASS zcl_bp IMPLEMENTATION.
   ENDMETHOD.
 
 *--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - INDUSTRY - INDUSTRIES
-*--------------------------------------------------------------------*
-  METHOD map_industry.
-
-    FIELD-SYMBOLS:
-    <fs_industry> TYPE bus_ei_bupa_industrysector.
-
-    CHECK cs_prov-brsch IS NOT INITIAL.
-
-    " Determinar el sistema de industrias al que pertenece el ramo.
-    SELECT SINGLE istype
-    FROM tb038a
-    WHERE ind_sector = @cs_prov-brsch
-    INTO @DATA(lv_istype).
-
-    IF sy-subrc = 0.
-      APPEND INITIAL LINE TO cs_data-partner-central_data-industry-industries ASSIGNING <fs_industry>.
-
-      <fs_industry>-task = cv_task.
-      <fs_industry>-data_key-keysystem = lv_istype. " Sector industrial
-      <fs_industry>-data_key-ind_sector = cs_prov-brsch. " Ramo
-      <fs_industry>-data-ind_default =  abap_true.
-      <fs_industry>-datax-ind_default = abap_true.
-    ENDIF.
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - BANKDETAIL
-*--------------------------------------------------------------------*
-  METHOD map_bank_data.
-
-    DATA lv_iban TYPE iban.
-
-    FIELD-SYMBOLS:
-    <fs_bankdetail> TYPE bus_ei_bupa_bankdetail.
-
-    " El programa anterior únicamente informaba los datos bancarios durante la migración 3
-    CHECK cs_prov-migr = 3.
-
-    " Crear detalle bancario del Business Partner
-    APPEND INITIAL LINE TO cs_data-partner-central_data-bankdetail-bankdetails ASSIGNING <fs_bankdetail>.
-
-    <fs_bankdetail>-task = cv_task.
-
-    " País del banco
-    " ZFIEPROV-LAND1 -> LFBK-BANKS
-    IF cs_prov-land1 IS NOT INITIAL.
-      <fs_bankdetail>-data-bank_ctry  = cs_prov-land1.
-      <fs_bankdetail>-datax-bank_ctry = abap_true.
-    ENDIF.
-
-    " Clave del banco
-    " ZFIEPROV-BANKK -> LFBK-BANKL
-    IF cs_prov-bankk IS NOT INITIAL.
-      <fs_bankdetail>-data-bank_key  = cs_prov-bankk.
-      <fs_bankdetail>-datax-bank_key = abap_true.
-    ENDIF.
-
-    " Número de cuenta bancaria
-    " ZFIEPROV-BANKN -> LFBK-BANKN
-    IF cs_prov-bankn IS NOT INITIAL.
-      <fs_bankdetail>-data-bank_acct  = cs_prov-bankn.
-      <fs_bankdetail>-datax-bank_acct = abap_true.
-    ENDIF.
-
-    " Clave de control bancaria
-    " ZFIEPROV-BKONT -> LFBK-BKONT
-    IF cs_prov-bkont IS NOT INITIAL.
-      <fs_bankdetail>-data-ctrl_key  = cs_prov-bkont.
-      <fs_bankdetail>-datax-ctrl_key = abap_true.
-    ENDIF.
-
-    " Titular de la cuenta.
-    " El BDC antiguo informaba siempre LFBK-KOINH = 'TIT'.
-    <fs_bankdetail>-data-accountholder  = 'TIT'.
-    <fs_bankdetail>-datax-accountholder = abap_true.
-
-    " IBAN
-    " El programa anterior almacenaba el IBAN dividido en nueve
-    " campos por limitaciones de la dynpro. La estructura BP recibe
-    " directamente el IBAN completo
-    IF cs_prov-iban01 IS NOT INITIAL.
-
-      CONCATENATE
-      cs_prov-iban01 cs_prov-iban02
-      cs_prov-iban03 cs_prov-iban04
-      cs_prov-iban05 cs_prov-iban06
-      cs_prov-iban07 cs_prov-iban08
-      cs_prov-iban09 INTO lv_iban.
-
-      " Eliminar posibles espacios del IBAN
-      CONDENSE lv_iban NO-GAPS.
-
-      <fs_bankdetail>-data-iban  = lv_iban.
-      <fs_bankdetail>-datax-iban = abap_true.
-
-    ENDIF.
-
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
 *& VENDOR - COMPANY_DATA - COMPANY - WTAX_TYPE
 *--------------------------------------------------------------------*
   METHOD map_withholding_tax.
 
-    FIELD-SYMBOLS:
-    <fs_wtax> TYPE vmds_ei_wtax_type.
+    FIELD-SYMBOLS: <fs_wtax> TYPE vmds_ei_wtax_type.
 
     " La validación previa de ZFI0009 controla:
-    " PAIS_R + WITHT + WT_WITHCD estén todos informados o todos vacíos.
-    CHECK cs_prov-pais_r IS NOT INITIAL AND cs_prov-witht IS NOT INITIAL
-      AND cs_prov-wt_withcd IS NOT INITIAL.
+    " PAIS_R + WITHT + WT_WITHCD estén todos informados o todos vacíos
+    CHECK cs_prov-pais_r IS NOT INITIAL
+    AND cs_prov-witht IS NOT INITIAL
+    AND cs_prov-wt_withcd IS NOT INITIAL.
+
+    cv_task = gc_task_insert.
+    IF cs_prov-partner IS NOT INITIAL.
+
+      SELECT SINGLE @abap_true FROM lfbw
+      WHERE lifnr = @cs_prov-partner
+      AND bukrs = @cs_prov-bukrs
+      AND witht = @cs_prov-witht
+      INTO @DATA(lv_exists).
+      IF sy-subrc = 0.
+        cv_task = gc_task_update.
+      ENDIF.
+    ENDIF.
 
     APPEND INITIAL LINE TO cs_company-wtax_type-wtax_type ASSIGNING <fs_wtax>.
 
     <fs_wtax>-task = cv_task.
 
-    " Tipo de retención
-    " ZFIEPROV-WITHT -> LFBW-WITHT
+    " Tipo de retención ZFIEPROV-WITHT
     <fs_wtax>-data_key-witht = cs_prov-witht.
 
-    " Código de retención
-    " ZFIEPROV-WT_WITHCD -> LFBW-WT_WITHCD
+    " Código de retención ZFIEPROV-WT_WITHCD
     <fs_wtax>-data-wt_withcd  = cs_prov-wt_withcd.
     <fs_wtax>-datax-wt_withcd = abap_true.
 
     " Sujeto a retención
-    " El BDC anterior establecía siempre WT_SUBJCT = X.
+    " El BDC establecía siempre WT_SUBJCT = X
     <fs_wtax>-data-wt_subjct  = abap_true.
     <fs_wtax>-datax-wt_subjct = abap_true.
 
@@ -5706,8 +5880,7 @@ CLASS zcl_bp IMPLEMENTATION.
 *--------------------------------------------------------------------*
   METHOD map_purchasing_data.
 
-    FIELD-SYMBOLS:
-    <fs_purchasing> TYPE vmds_ei_purchasing.
+    FIELD-SYMBOLS: <fs_purchasing> TYPE vmds_ei_purchasing.
 
     CHECK cs_prov-ekorg IS NOT INITIAL.
 
@@ -5758,10 +5931,10 @@ CLASS zcl_bp IMPLEMENTATION.
 *& VENDOR - PURCHASING_DATA - PURCHASING - FUNCTIONS
 *--------------------------------------------------------------------*
   METHOD map_purchasing_functions.
-    DATA lv_parvw TYPE parvw.
 
-    FIELD-SYMBOLS:
-    <fs_function> TYPE vmds_ei_functions.
+    FIELD-SYMBOLS: <fs_function> TYPE vmds_ei_functions.
+    DATA: lv_parvw TYPE parvw,
+          lt_wyt3  TYPE STANDARD TABLE OF wyt3.
 
     " Funciones de interlocutor utilizadas por el proceso antiguo
     DATA(lt_functions) = VALUE string_table(
@@ -5770,26 +5943,47 @@ CLASS zcl_bp IMPLEMENTATION.
           ( `EF` ) ).
 
     LOOP AT lt_functions INTO DATA(lv_function).
-
-      APPEND INITIAL LINE TO cs_purchasing-functions-functions ASSIGNING <fs_function>.
-
-      <fs_function>-task = cv_task.
-
+      CLEAR: lv_parvw.
       " Conversión de la función externa al código interno SAP
       CALL FUNCTION 'CONVERSION_EXIT_PARVW_INPUT'
         EXPORTING
           input  = lv_function
         IMPORTING
-          output = <fs_function>-data_key-parvw.
+          output = lv_parvw.
+
+      IF cs_prov-partner IS NOT INITIAL.
+
+        SELECT ltsnr, werks, parza
+        FROM wyt3
+        WHERE lifnr = @cs_prov-partner
+        AND ekorg = @cs_prov-ekorg
+        AND parvw = @cv_parvw
+        INTO CORRESPONDING FIELDS OF TABLE lt_wyt3.
+
+        SORT lt_wyt3 BY parza.
+
+      ELSE.
+        CLEAR lt_wyt3.
+      ENDIF.
+
+      APPEND INITIAL LINE TO cs_purchasing-functions-functions ASSIGNING <fs_function>.
+      <fs_function>-data_key-parvw = lv_parvw.
+
+      IF lt_wyt3 IS NOT INITIAL.
+        <fs_function>-task = gc_task_update.
+
+        <fs_function>-data_key-ltsnr = lt_wyt3[ 1 ]-ltsnr.
+        <fs_function>-data_key-werks = lt_wyt3[ 1 ]-werks.
+        <fs_function>-data_key-parza = lt_wyt3[ 1 ]-parza.
+
+      ELSE.
+        <fs_function>-task = gc_task_insert.
+      ENDIF.
 
       " No existen subrango ni centro en el BDC anterior
-      CLEAR:
-      <fs_function>-data_key-ltsnr,
-      <fs_function>-data_key-werks.
-
-      " Primera ocurrencia de la función
-      <fs_function>-data_key-parza = '000'.
-      <fs_function>-data-partner  = cs_prov-partner.
+      IF cs_prov-partner IS NOT INITIAL.
+        <fs_function>-data-partner = cs_prov-partner.
+      ENDIF.
       <fs_function>-datax-partner = abap_true.
     ENDLOOP.
   ENDMETHOD.
@@ -5809,6 +6003,61 @@ CLASS zcl_bp IMPLEMENTATION.
 
     "CL_MD_BP_MAINTAIN=>VALIDATE_SINGLE
   ENDMETHOD.
-ENDCLASS.
 
-"banco/IBAN, ramo, NATPERS y retenciones.
+  METHOD evaluate_return.
+
+    DATA: lv_text TYPE string.
+
+    cs_result-success = abap_true.
+
+    LOOP AT it_return ASSIGNING FIELD-SYMBOL(<fs_return>).
+
+      " Intentar recuperar número generado
+      IF cs_result-partner IS INITIAL AND <fs_return>-object_key IS NOT INITIAL.
+
+        DATA(lv_object_key) =  CONV string( <fs_return>-object_key ).
+
+        CONDENSE lv_object_key NO-GAPS.
+
+        IF strlen( lv_object_key ) <= 10.
+
+          cs_result-partner = |{ lv_object_key ALPHA = IN }|.
+
+        ENDIF.
+
+      ENDIF.
+
+      " Todos los errores
+      LOOP AT <fs_return>-object_msg ASSIGNING FIELD-SYMBOL(<fs_message>)
+      WHERE type = 'E'  OR type = 'A' OR type = 'X'.
+
+        cs_result-success = abap_false.
+
+        CLEAR lv_text.
+
+        MESSAGE ID <fs_message>-id TYPE 'S' NUMBER <fs_message>-number
+        WITH <fs_message>-message_v1  <fs_message>-message_v2
+        <fs_message>-message_v3 <fs_message>-message_v4
+        INTO lv_text.
+
+        IF cs_result-message IS INITIAL.
+
+          cs_result-message =  lv_text.
+
+        ELSE.
+
+          cs_result-message =  |{ cs_result-message } / { lv_text }|.
+
+        ENDIF.
+      ENDLOOP.
+
+    ENDLOOP.
+
+    IF cs_result-success = abap_false  AND cs_result-message IS INITIAL.
+
+      cs_result-message =  'Error al mantener el Business Partner'.
+
+    ENDIF.
+
+  ENDMETHOD.
+ENDCLASS.
