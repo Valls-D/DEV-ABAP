@@ -5196,19 +5196,30 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
       RETURNING
         VALUE(rt_return) TYPE bapiretm.
 
+    METHODS evaluate_return
+      IMPORTING
+        it_return TYPE bapiretm
+      CHANGING
+        cs_prov   TYPE zfieprov
+        cs_result TYPE ty_result.
+
 ENDCLASS.
 CLASS zcl_bp IMPLEMENTATION.
 
   METHOD maintain_bp.
     DATA:
-      ls_data TYPE cvis_ei_extern,
-      lv_task TYPE c LENGTH 1.
+      ls_data            TYPE cvis_ei_extern,
+      lv_task            TYPE c LENGTH 1,
+      lv_company_task    TYPE c LENGTH 1,
+      lv_purchasing_task TYPE c LENGTH 1.
 
     " Determinar si estamos creando o modificando un BP
-    lv_task = COND #( WHEN cs_prov-partner IS INITIAL
-    THEN gc_task_insert ELSE gc_task_modify ).
+    lv_task =
+    COND #( WHEN cs_prov-partner IS INITIAL
+    THEN gc_task_insert
+    ELSE gc_task_update ).
 
-    " Mapear los datos de ZFIEPROV a la estructura CVI
+    " Datos centrales
     map_bp_data(
     CHANGING
       cs_prov = cs_prov
@@ -5252,19 +5263,52 @@ CLASS zcl_bp IMPLEMENTATION.
 
     " Datos dependientes de sociedad (FLVN00)
     IF cs_prov-bukrs IS NOT INITIAL.
+
+      IF cs_prov-partner IS INITIAL.
+        lv_company_task = gc_task_insert.
+      ELSE.
+
+        SELECT SINGLE @abap_true FROM lfb1
+        WHERE lifnr = @cs_prov-partner
+        AND bukrs = @cs_prov-bukrs
+        INTO @DATA(lv_company_exists).
+
+        lv_company_task =
+        COND #( WHEN sy-subrc = 0
+        THEN gc_task_update
+        ELSE gc_task_insert ).
+
+      ENDIF.
+
       map_company_data(
       CHANGING
         cs_prov = cs_prov
-        cv_task = lv_task
+        cv_task = lv_company_task
         cs_data = ls_data ).
     ENDIF.
 
     " Datos de organización de compras (FLVN01)
     IF cs_prov-ekorg IS NOT INITIAL.
+      IF cs_prov-partner IS INITIAL.
+        lv_purchasing_task = gc_task_insert.
+      ELSE.
+
+        SELECT SINGLE @abap_true
+        FROM lfm1
+        WHERE lifnr = @cs_prov-partner
+        AND ekorg = @cs_prov-ekorg
+        INTO @DATA(lv_purchasing_exists).
+
+        lv_purchasing_task =
+        COND #( WHEN sy-subrc = 0
+        THEN gc_task_update
+        ELSE gc_task_insert ).
+
+      ENDIF.
       map_purchasing_data(
       CHANGING
         cs_prov = cs_prov
-        cv_task = lv_task
+        cv_task = lv_purchasing_task
         cs_data = ls_data ).
     ENDIF.
 
@@ -5272,12 +5316,12 @@ CLASS zcl_bp IMPLEMENTATION.
     rs_result-return = call_api( ls_data ).
 
     " El tratamiento de mensajes
-    IF line_exists( rs_result-return[ 1 ]-object_msg[ type = 'E' ] )
-    OR line_exists( rs_result-return[ 1 ]-object_msg[ type = 'A' ] ).
-      rs_result-success = abap_false.
-    ELSE.
-      rs_result-success = abap_true.
-    ENDIF.
+    evaluate_return(
+    EXPORTING
+      it_return = rs_result-RETURN
+    CHANGING
+      cs_prov   = cs_prov
+      cs_result = rs_result ).
   ENDMETHOD.
 
 *--------------------------------------------------------------------*
@@ -5767,4 +5811,4 @@ CLASS zcl_bp IMPLEMENTATION.
   ENDMETHOD.
 ENDCLASS.
 
-
+"banco/IBAN, ramo, NATPERS y retenciones.
