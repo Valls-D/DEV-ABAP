@@ -5,12 +5,12 @@
 *&
 *&
 *&---------------------------------------------------------------------*
-INCLUDE ZFI0009TOP                              .    " global Data
 
-INCLUDE ZFI0009PBO.
 
-INCLUDE ZFI0009PAI.
+INCLUDE ZFI0009TOP                              .    " global Data 
 
+INCLUDE ZFI0009PBO. 
+INCLUDE ZFI0009PAI. 
 INCLUDE ZFI0009FRM.
 INCLUDE ZFI0009CLS.
 
@@ -19,143 +19,177 @@ INCLUDE ZFI0009CLS.
 *&
 *&---------------------------------------------------------------------*
 
-PROGRAM  ZFI0009.
+PROGRAM  zfi0009.
 
-TABLES: ZFITPROV,
-        LFA1,
-        LFB1,
-        T001K,
-        T001W,
-        T059Z,
-        T001,
-        ZFIT_FISCAL_FI,
-        ZFITPROVNAV,
-        ZFITPROVH,
-        ZFIEPROV,
-        T020,
+TABLES: zfitprov,
+        lfa1,
+        lfb1,
+        t001k,
+        t001w,
+        t059z,
+        t001,
+        zfit_fiscal_fi,
+        zfitprovnav,
+        zfitprovh,
+        zfieprov,
+        t020,
         t042z,
-        RF02D,                        " Dynpro/Arbeitsfelder Debitor
-         *RF02D.
+        rf02d,                        " Dynpro/Arbeitsfelder Debitor
+        *rf02d.
 
-CONTROLS T_1 TYPE TABLEVIEW USING SCREEN 9001.
+CONTROLS t_1 TYPE TABLEVIEW USING SCREEN 9001.
 
-CONTROLS T_2 TYPE TABLEVIEW USING SCREEN 9002.
+CONTROLS t_2 TYPE TABLEVIEW USING SCREEN 9002.
 
-DATA LT_T_1 LIKE ZFIEPROV OCCURS 0 WITH HEADER LINE.
+DATA lt_t_1 LIKE zfieprov OCCURS 0 WITH HEADER LINE.
 
-DATA LT_T_2 LIKE ZFITPROVH OCCURS 0 WITH HEADER LINE.
+DATA lt_t_2 LIKE zfitprovh OCCURS 0 WITH HEADER LINE.
 
-DATA LV_COD_INT LIKE LT_T_1-COD_INT.
-controls     TCTRL_ZAHLWEGE          TYPE TABLEVIEW USING SCREEN 1215.
-DATA:    OK-CODE(5)     TYPE C.
-TYPES:   BEGIN OF FCODE,
-             OKCODE(5) TYPE C,
-         END OF FCODE.
-DATA:    ZWCNT(2)       TYPE P VALUE 0,     " Zaehler  (Zahlwege)
-         ZAV_READ(1)    TYPE C.
-TYPES:   TABLE_OF_FUNCTION_CODES TYPE STANDARD TABLE OF FCODE.
-DATA:    EXCTAB TYPE TABLE_OF_FUNCTION_CODES.
+DATA lv_cod_int LIKE lt_t_1-cod_int.
+CONTROLS     tctrl_zahlwege          TYPE TABLEVIEW USING SCREEN 1215.
+DATA:    ok-code(5)     TYPE c.
+TYPES: BEGIN OF fcode,
+         okcode(5) TYPE c,
+       END OF fcode.
+DATA: zwcnt(2)    TYPE p VALUE 0,     " Zaehler  (Zahlwege)
+      zav_read(1) TYPE c.
+TYPES:   table_of_function_codes TYPE STANDARD TABLE OF fcode.
+DATA:    exctab TYPE table_of_function_codes.
 
-DATA: BEGIN OF TABSTRIP_EXTAB OCCURS 0,
-          OKCODE LIKE SY-TCODE,
-      END OF TABSTRIP_EXTAB.
+DATA: BEGIN OF tabstrip_extab OCCURS 0,
+        okcode LIKE sy-tcode,
+      END OF tabstrip_extab.
 * Datendeklarationen für Betriebestamm
-DATA:       kred_call,                "Kreditor bereits gepuffert
-            debi_call,                "Debitor bereits gepuffert
-            debi_ex_kred,             "Debitor wird aus Kreditor
-                                      "aktualisiert
-            kred_ex_debi,             "Kreditor wird aus Debitor
-                                      "aktualisier
-            nriv_externind LIKE nriv-externind, "Externe Nummernvergabe
-            s_retdeb_type  LIKE rf02d-selkz,
-            s_retkre_type  LIKE rf02d-selkz,
-            debi_ex_kred_no_save.
-DATA:    BEGIN OF E042Z OCCURS 10,
-           ZLSCH        LIKE T042Z-ZLSCH,   " Zahlweg
-           TEXT1        LIKE T042Z-TEXT1,   " Bedeutung des Zahlwegs
-           XSELK(1)     TYPE C,             " KZ: X=Zahlweg ausgewaehlt
-         END OF E042Z.
-DATA:    BEGIN OF A042Z OCCURS 10,
-           ZLSCH        LIKE T042Z-ZLSCH,   " Zahlweg
-           TEXT1        LIKE T042Z-TEXT1,   " Bedeutung des Zahlwegs
-           XSELK(1)     TYPE C,             " KZ: X=Zahlweg ausgewaehlt
-         END OF A042Z.
-DATA:    REFE1(8)       TYPE P,
-         REFE2(8)       TYPE P,
-         TFILL          TYPE I,
-         INDEX          TYPE I.
-DATA:    LOOPC          TYPE I,             " Hilfsfeld Listbildblättern
-         SAVE_LOOPC(2)  TYPE P,             " Hilfsfeld Listbildblättern
-         LFLAG(1)       TYPE C,             " Flag 'Zeilenselektion'
-         LINDEX         TYPE I,
-         XMERKEN(1)     TYPE C,
-         SAVE_ZWELS     LIKE LFB1-ZWELS.
+DATA: kred_call,                      "Kreditor bereits gepuffert
+      debi_call,                "Debitor bereits gepuffert
+      debi_ex_kred,             "Debitor wird aus Kreditor
+      "aktualisiert
+      kred_ex_debi,             "Kreditor wird aus Debitor
+      "aktualisier
+      nriv_externind       LIKE nriv-externind, "Externe Nummernvergabe
+      s_retdeb_type        LIKE rf02d-selkz,
+      s_retkre_type        LIKE rf02d-selkz,
+      debi_ex_kred_no_save.
+DATA: BEGIN OF e042z OCCURS 10,
+        zlsch    LIKE t042z-zlsch,   " Zahlweg
+        text1    LIKE t042z-text1,   " Bedeutung des Zahlwegs
+        xselk(1) TYPE c,             " KZ: X=Zahlweg ausgewaehlt
+      END OF e042z.
+DATA: BEGIN OF a042z OCCURS 10,
+        zlsch    LIKE t042z-zlsch,   " Zahlweg
+        text1    LIKE t042z-text1,   " Bedeutung des Zahlwegs
+        xselk(1) TYPE c,             " KZ: X=Zahlweg ausgewaehlt
+      END OF a042z.
+DATA: refe1(8) TYPE p,
+      refe2(8) TYPE p,
+      tfill    TYPE i,
+      index    TYPE i.
+DATA: loopc         TYPE i,             " Hilfsfeld Listbildblättern
+      save_loopc(2) TYPE p,             " Hilfsfeld Listbildblättern
+      lflag(1)      TYPE c,             " Flag 'Zeilenselektion'
+      lindex        TYPE i,
+      xmerken(1)    TYPE c,
+      save_zwels    LIKE lfb1-zwels.
 * Table control
 DATA:
 
-  LV_LIN TYPE I,
-  LV_INI TYPE I,
-  LV_INI_H TYPE I,
-  LV_CUR TYPE I,
-  LV_CURSOR TYPE I,
-  LV_CURSOR_FIELD TYPE NAME_KOMP,
-  LV_SUP_D TYPE I.
+  lv_lin          TYPE i,
+  lv_ini          TYPE i,
+  lv_ini_h        TYPE i,
+  lv_cur          TYPE i,
+  lv_cursor       TYPE i,
+  lv_cursor_field TYPE name_komp,
+  lv_sup_d        TYPE i.
 
-DATA LV_UCOMM TYPE SY-UCOMM.
+DATA lv_ucomm TYPE sy-ucomm.
 
 * Verificaciones / Confirmaciones
 DATA:
 
-  LV_VERIF TYPE I,
-  LV_CONFIRM TYPE I,
-  LV_VERIF_T(80).
+  lv_verif       TYPE i,
+  lv_confirm     TYPE i,
+  lv_verif_t(80).
 
 *       Batchinputdata of single transaction
-DATA:   BDCDATA LIKE BDCDATA    OCCURS 0 WITH HEADER LINE.
+DATA:   bdcdata LIKE bdcdata    OCCURS 0 WITH HEADER LINE.
 *       messages of call transaction
 
 ** Inicio CGR 11/02/2010
-   DATA: lv_first(1).
+DATA: lv_first(1).
 
-   clear: lv_first.
+CLEAR: lv_first.
 ** Fin CGR CGR 11/02/2010
 
-DATA LV_MIGR TYPE I.  " 1: MIGRACION FICH 1 / 2:FICH 2
+DATA lv_migr TYPE i.  " 1: MIGRACION FICH 1 / 2:FICH 2
 
-DATA LV_FICH LIKE RLGRAP-FILENAME.
+DATA lv_fich LIKE rlgrap-filename.
 
-DATA LT_FICH LIKE ALSMEX_TABLINE OCCURS 0 WITH HEADER LINE.
+DATA lt_fich LIKE alsmex_tabline OCCURS 0 WITH HEADER LINE.
 
-DATA: LV_TOTAC TYPE I,
-      LV_TOT TYPE I,
-      X055_COUNT(3)  TYPE P.
-DATA: CRS_FIELD      like rfcu3-fname,
-      CRS_LINE       LIKE SY-STEPL.
+DATA: lv_totac      TYPE i,
+      lv_tot        TYPE i,
+      x055_count(3) TYPE p.
+DATA: crs_field LIKE rfcu3-fname,
+      crs_line  LIKE sy-stepl.
 DATA: BEGIN OF lt_log OCCURS 0,
-         msgid  LIKE sy-msgid,
-         msgtyp  LIKE sy-msgty,
-         msgnr  LIKE sy-msgno,
-         msgv1  LIKE sy-msgv1,
-         msgv2  LIKE sy-msgv2,
-         msgv3  LIKE sy-msgv3,
-         msgv4  LIKE sy-msgv4,
-         lineno LIKE mesg-zeile,
-       END OF lt_log.
+        msgid  LIKE sy-msgid,
+        msgtyp LIKE sy-msgty,
+        msgnr  LIKE sy-msgno,
+        msgv1  LIKE sy-msgv1,
+        msgv2  LIKE sy-msgv2,
+        msgv3  LIKE sy-msgv3,
+        msgv4  LIKE sy-msgv4,
+        lineno LIKE mesg-zeile,
+      END OF lt_log.
 
-DATA: GV_LIFNR LIKE LFA1-LIFNR,
-      CHAR1(1)       TYPE C.
-FIELD-SYMBOLS: <F1>, <F2>, <NVAL>, <OVAL>.
-DATA:    BEGIN OF SORTTAB OCCURS 10,
-           ARG(1)       TYPE C,             " Sortierfeld
-         END OF SORTTAB.
+DATA: gv_lifnr LIKE lfa1-lifnr,
+      char1(1) TYPE c.
+FIELD-SYMBOLS: <f1>, <f2>, <nval>, <oval>.
+DATA: BEGIN OF sorttab OCCURS 10,
+        arg(1) TYPE c,             " Sortierfeld
+      END OF sorttab.
 
-RANGES: r_bukrs_aut for t001-bukrs.
-RANGES: r_bukrs_naut for t001-bukrs.
+RANGES: r_bukrs_aut FOR t001-bukrs.
+RANGES: r_bukrs_naut FOR t001-bukrs.
 
+"DTT - GAP012_BP
+TYPES:
+  BEGIN OF ty_result,
+    success TYPE abap_bool,
+    partner TYPE bu_partner,
+    message TYPE string,
+    return  TYPE bapiretm,
+  END OF ty_result,
+  BEGIN OF ty_context,
+    valid           TYPE abap_bool,
+    message         TYPE string,
+    bp_task         TYPE c LENGTH 1,
+    vendor_task     TYPE c LENGTH 1,
+    address_task    TYPE c LENGTH 1,
+    company_task    TYPE c LENGTH 1,
+    purchasing_task TYPE c LENGTH 1,
+    partner_guid    TYPE but000-partner_guid,
+    address_guid    TYPE but020-address_guid,
+  END OF ty_context.
+
+CONSTANTS:
+  gc_task_insert TYPE c LENGTH 1 VALUE 'I',
+  gc_task_UPDATE TYPE c LENGTH 1 VALUE 'U',
+  gc_task_modify TYPE c LENGTH 1 VALUE 'M',
+  gc_task_delete TYPE c LENGTH 1 VALUE 'D',
+  gc_role_flvn00 TYPE bu_partnerrole VALUE 'FLVN00',
+  gc_role_flvn01 TYPE bu_partnerrole VALUE 'FLVN01',
+  gc_bp_org      TYPE bu_type VALUE '2',
+  gc_rfc_ext_mx  TYPE bptaxnumxl VALUE 'XEXX010101000'.
+"DTT - GAP012_BP
+
+*--------------------------------------------------------------------*
+*   PANTALLA DE SELECCION
+*--------------------------------------------------------------------*
 SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME.
-SELECT-OPTIONS so_bukrs FOR ZFIEPROV-bukrs NO INTERVALS OBLIGATORY.
-SELECT-OPTIONS so_fecha FOR ZFIEPROV-fecha.
-PARAMETERS so_estad type ZZEESTALTA04.
+  SELECT-OPTIONS so_bukrs FOR zfieprov-bukrs NO INTERVALS OBLIGATORY.
+  SELECT-OPTIONS so_fecha FOR zfieprov-fecha.
+  PARAMETERS so_estad TYPE zzeestalta04.
 SELECTION-SCREEN END OF BLOCK b1.
 **************************** START-OF-SELECTION *************************
 
@@ -163,7 +197,7 @@ SELECTION-SCREEN END OF BLOCK b1.
 START-OF-SELECTION.
 
 
-      perform llamar_dynpro.
+  PERFORM llamar_dynpro.
 
 *----------------------------------------------------------------------*
 ***INCLUDE ZFI0002PBO .
@@ -468,7 +502,7 @@ MODULE pfstatus_d1215 OUTPUT.
     PERFORM set_pf_status TABLES exctab"MDT 28.12.98
                           USING '215Z' ' '.                "MDT 28.12.98
   ENDIF.
-ENDMODULE.                 " PFSTATUS_D1215  OUTPUT
+ENDMODULE.                 " PFSTATUS_D1215  OUTPUT  
 
 *----------------------------------------------------------------------*
 ***INCLUDE ZFI0002PAI .
@@ -486,7 +520,7 @@ module USER_COMMAND_9001 input.
 
     WHEN 'STRT'.  " Aprobar
 
-      PERFORM TR_APROB.
+      PERFORM TR_APROB USING l_index CHANGING l_aprob.
       PERFORM TR_DESMARCAR.
 
     WHEN 'RECH'.   " Rechazar
@@ -691,51 +725,108 @@ endmodule.                 " TCTRL_ZAHLWEGE_BLAETTERN  INPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_aprob .
+FORM tr_aprob
+USING VALUE(iv_index)
+CHANGING cv_aprob.
 
-  lv_totac = 0.
-  lv_tot = 0.
+  DATA:
+    lv_ch      TYPE i,
+    lv_lifnr   LIKE zfitprov-partner,
+    lv_success TYPE abap_bool,
+    lv_partner TYPE bu_partner,
+    lv_message TYPE string,
+    ls_prov    TYPE zfieprov.
 
-  lv_verif = 0.
-
-  PERFORM verif.
-
-  IF NOT lv_verif IS INITIAL.   " Linea error
-
-    PERFORM crear_message.
-
+  " Mantener la lógica funcional existente de identificación
+  " y confirmación de proveedores duplicados/existentes.
+  "
+  IF lv_migr IS NOT INITIAL.
+    " Migración
+    PERFORM crea_acreedor_conf_m CHANGING cv_aprob lv_ch lv_lifnr.
   ELSE.
 
-    PERFORM confirm.
-
-    IF NOT lv_confirm IS INITIAL.   " Confirmado envío
-
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-      REFRESH lt_log.
-*** FIN MODIFICACIÓN EMG 12/05/2009
-
-      PERFORM tr_aprob_conf.
-
-      PERFORM tr_aprob_conf_modif.
-** inicio CGR 10/02/2009
-      LOOP AT lt_log.
-        IF lt_log-msgv1 = 'LFB1-QLAND'.
-          lt_log-msgv1 = 'País de retención'.
-        ENDIF.
-        MODIFY lt_log.
-      ENDLOOP.
-** fin CGR 10/02/2009
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-      CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
-        TABLES
-          i_message_tab = lt_log.
-*** FIN MODIFICACIÓN EMG 12/05/2009
-
-      MESSAGE s025(zfi01) WITH lv_totac lv_tot.
-
-    ENDIF.
-
+    " Flujo funcional
+    PERFORM crea_acreedor_conf_v2  CHANGING cv_aprob lv_ch.
   ENDIF.
+
+  " Usuario canceló o no debe continuar
+  CHECK cv_aprob IS NOT INITIAL.
+
+  CLEAR: cv_aprob, lt_t_1-error.
+
+  " CREA_ACREEDOR_CONF_V2 puede haber encontrado un proveedor
+  " existente por CIF
+  " Si el usuario ha decidido utilizarlo, GV_LIFNR contiene
+  " el proveedor que debe mantenerse
+  IF lt_t_1-partner IS INITIAL AND gv_lifnr IS NOT INITIAL.
+    lt_t_1-partner = gv_lifnr.
+  ENDIF.
+
+  ls_prov = lt_t_1.
+
+  " Alta / actualización mediante CL_MD_BP_MAINTAIN
+  PERFORM bp_maintain_request
+  CHANGING ls_prov lv_success lv_partner lv_message.
+
+  IF lv_success = abap_true.
+
+    lt_t_1-partner = lv_partner.
+    gv_lifnr       = lv_partner.
+
+    " Reflejar posibles cambios hechos por la clase
+    " (principalmente el PARTNER generado).
+    MOVE-CORRESPONDING ls_prov TO lt_t_1.
+    MODIFY lt_t_1 INDEX iv_index.
+    cv_aprob = 1.
+
+    " Mantener navegación de migración
+    IF lv_migr IS NOT INITIAL.
+      PERFORM act_provnav.
+    ENDIF.
+  ELSE.
+    " Error API
+    CLEAR cv_aprob.
+    lt_t_1-error = lv_message.
+    MODIFY lt_t_1 INDEX iv_index.
+  ENDIF.
+
+*  lv_totac = 0.
+*  lv_tot = 0.
+*  lv_verif = 0.
+*  PERFORM verif.
+*
+*  IF NOT lv_verif IS INITIAL.   " Linea error
+*
+*    PERFORM crear_message.
+*  ELSE.
+*
+*    PERFORM confirm.
+*    IF NOT lv_confirm IS INITIAL.   " Confirmado envío
+*
+**** INICIO MODIFICACIÓN EMG 12/05/2009
+*      REFRESH lt_log.
+**** FIN MODIFICACIÓN EMG 12/05/2009
+*
+*      PERFORM tr_aprob_conf.
+*
+*      PERFORM tr_aprob_conf_modif.
+*** inicio CGR 10/02/2009
+*      LOOP AT lt_log.
+*        IF lt_log-msgv1 = 'LFB1-QLAND'.
+*          lt_log-msgv1 = 'País de retención'.
+*        ENDIF.
+*        MODIFY lt_log.
+*      ENDLOOP.
+*** fin CGR 10/02/2009
+**** INICIO MODIFICACIÓN EMG 12/05/2009
+*      CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
+*        TABLES
+*          i_message_tab = lt_log.
+**** FIN MODIFICACIÓN EMG 12/05/2009
+*
+*      MESSAGE s025(zfi01) WITH lv_totac lv_tot.
+*    ENDIF.
+*  ENDIF.
 
 ENDFORM.                    " TR_APROB
 *&---------------------------------------------------------------------*
@@ -1518,10 +1609,14 @@ FORM tr_aprob_conf .
 * Datos Generales + Sociedad / Sociedad
     PERFORM tr_aprob_sol USING lv_index CHANGING lv_aprob.
 
-    IF NOT lv_aprob IS INITIAL AND NOT lt_t_1-bloq IS INITIAL.
-* Bloqueo Sociedad
-      PERFORM tr_bloq_soc USING lv_index CHANGING lv_aprob.
-    ENDIF.
+*    IF NOT lv_aprob IS INITIAL AND NOT lt_t_1-bloq IS INITIAL.
+** Bloqueo Sociedad
+*      PERFORM tr_bloq_soc USING lv_index CHANGING lv_aprob.
+*    ENDIF.
+
+    " Datos generales + sociedad / compras
+    " El bloqueo LFB1-SPERR ya se informa dentro de MAP_COMPANY_DATA.
+    PERFORM tr_aprob_sol  USING lv_index  CHANGING lv_aprob.
 
 * Grupos de sincronización / Sociedades ES ( Migración ES )
     IF ( lt_t_1-repl EQ 'X' OR NOT lv_migr IS INITIAL ) AND
@@ -2905,7 +3000,7 @@ FORM crea_acreedor_conf_m CHANGING l_ok TYPE i
 * Prov Master / Ya creado
 
     l_ch = 1.  " El acreedor ya ha sido creado
-    lt_t_1-partner = zfitprovnav-lifnr.
+    lt_t_1-partner = zfitprovnav-partner.
 
   ENDIF.
 
@@ -3841,7 +3936,7 @@ FORM tr_aprob_conf_modif .
     SELECT * UP TO 1 ROWS FROM zfitprovnav WHERE zzprovenl = lt_t_1-zzprovenl.
     ENDSELECT.
 
-    lt_t_1-partner = zfitprovnav-lifnr.
+    lt_t_1-partner = zfitprovnav-partner.
     PERFORM migr_soc_modif USING lv_index
                           CHANGING lv_aprob.
 
@@ -5146,11 +5241,12 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
         cs_data TYPE cvis_ei_extern.
 
     METHODS map_tax_number
+      IMPORTING
+        iv_extended TYPE c
       CHANGING
         cs_prov     TYPE zfieprov
         cv_taxtype  TYPE dfkkbptaxnum-taxtype
-        cv_value    TYPE CHAR18
-        cv_extended TYPE abap_bool
+        cv_value    TYPE string
         cs_data     TYPE cvis_ei_extern.
 
     METHODS map_bp_address
@@ -5421,10 +5517,10 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
 
     " Ejecutar API
-    rs_result-return = call_api( ls_data ).
-
+    DATA(lt_return) = call_api( is_data = ls_data ).
     " El tratamiento de mensajes
-    rs_result = evaluate_return( it_return = rs_result-return ).
+    rs_result = evaluate_return( it_return = lt_return ).
+    rs_result-return = lt_return.
 
     IF rs_result-success = abap_true.
       CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
@@ -5433,7 +5529,6 @@ CLASS zcl_bp IMPLEMENTATION.
 
       " BP nuevo: recuperar número generado
       IF cs_prov-partner IS INITIAL.
-
         IF rs_result-partner IS INITIAL.
 
           SELECT SINGLE partner FROM but000
@@ -5564,7 +5659,8 @@ CLASS zcl_bp IMPLEMENTATION.
 
     FIELD-SYMBOLS: <fs_tax> TYPE bus_ei_bupa_taxnumber.
     DATA: lv_taxtype1 TYPE dfkkbptaxnum-taxtype,
-          lv_taxtype3 TYPE dfkkbptaxnum-taxtype.
+          lv_taxtype3 TYPE dfkkbptaxnum-taxtype,
+          lv_cif      TYPE string.
 
     CHECK cs_prov-pais IS NOT INITIAL.
 
@@ -5576,13 +5672,16 @@ CLASS zcl_bp IMPLEMENTATION.
       ELSE.
         lv_taxtype1 = |{ cs_prov-pais }1|.
       ENDIF.
+      CLEAR: lv_cif.
+      lv_cif = CONV string( cs_prov-cif ).
 
       map_tax_number(
+      EXPORTING
+        iv_extended = abap_true
       CHANGING
         cs_prov     = cs_prov
         cv_taxtype  = lv_taxtype1
-        cv_value    = cs_prov-cif
-        cv_extended = abap_true
+        cv_value    = lv_cif
         cs_data     = cs_data ).
     ENDIF.
 
@@ -5590,13 +5689,16 @@ CLASS zcl_bp IMPLEMENTATION.
     IF cs_prov-stcd3 IS NOT INITIAL.
 
       lv_taxtype1 = |{ cs_prov-pais }3|.
+      CLEAR: lv_cif.
+      lv_cif = CONV string( cs_prov-stcd3 ).
 
       map_tax_number(
+      EXPORTING
+        iv_extended = abap_false
       CHANGING
         cs_prov     = cs_prov
         cv_taxtype  = lv_taxtype3
-        cv_value    = cs_prov-stcd3
-        cv_extended = abap_false
+        cv_value    = lv_cif
         cs_data     = cs_data ).
     ENDIF.
 
@@ -5629,10 +5731,9 @@ CLASS zcl_bp IMPLEMENTATION.
       APPEND INITIAL LINE TO cs_data-partner-central_data-taxnumber-taxnumbers ASSIGNING <fs_tax>.
 
       <fs_tax>-task = lv_task.
-
       <fs_tax>-data_key-taxtype = cv_taxtype.
 
-      IF cv_extended = abap_true.
+      IF iv_extended = abap_true.
 
         " Número de identificación fiscal ZFIEPROV-CIF -> TAXNUMXL
         <fs_tax>-data_key-taxnumxl = cv_value.
@@ -6039,8 +6140,8 @@ CLASS zcl_bp IMPLEMENTATION.
         FROM wyt3
         WHERE lifnr = @cs_prov-partner
         AND ekorg = @cs_prov-ekorg
-        AND parvw = @cv_parvw
-        INTO CORRESPONDING FIELDS OF TABLE lt_wyt3.
+        AND parvw = @lv_parvw
+        INTO CORRESPONDING FIELDS OF TABLE @lt_wyt3.
 
         SORT lt_wyt3 BY parza.
 
@@ -6143,3 +6244,45 @@ CLASS zcl_bp IMPLEMENTATION.
 
   ENDMETHOD.
 ENDCLASS.
+
+FORM bp_maintain_request
+CHANGING
+  cs_prov    TYPE zfieprov
+  cv_success TYPE abap_bool
+  cv_partner TYPE bu_partner
+  cv_message TYPE string.
+
+  DATA: lo_bp     TYPE REF TO zcl_bp,
+        ls_result TYPE ty_result.
+
+  CLEAR: cv_success, cv_partner, cv_message.
+
+  lo_bp = NEW zcl_bp( ).
+
+  ls_result =  lo_bp->maintain_bp(  CHANGING cs_prov = cs_prov ).
+
+  cv_success = ls_result-success.
+  cv_partner = ls_result-partner.
+  cv_message = ls_result-message.
+
+  " Mantener el comportamiento actual de ZFI0009:
+  " los mensajes se muestran posteriormente mediante LT_LOG
+  LOOP AT ls_result-return  ASSIGNING FIELD-SYMBOL(<fs_return>).
+
+    LOOP AT <fs_return>-object_msg ASSIGNING FIELD-SYMBOL(<fs_message>).
+
+      CLEAR lt_log.
+
+      lt_log-msgid  = <fs_message>-id.
+      lt_log-msgtyp = <fs_message>-type.
+      lt_log-msgnr  = <fs_message>-number.
+      lt_log-msgv1  = <fs_message>-message_v1.
+      lt_log-msgv2  = <fs_message>-message_v2.
+      lt_log-msgv3  = <fs_message>-message_v3.
+      lt_log-msgv4  = <fs_message>-message_v4.
+
+      APPEND lt_log.
+    ENDLOOP.
+  ENDLOOP.
+
+ENDFORM.
