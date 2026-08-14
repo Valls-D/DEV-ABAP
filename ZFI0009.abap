@@ -5492,6 +5492,21 @@ CLASS zcl_bp IMPLEMENTATION.
     cs_data-partner-central_data-common-data-bp_centraldata-searchterm1 = cs_prov-busq.
     cs_data-partner-central_data-common-datax-bp_centraldata-searchterm1 = abap_true.
 
+    cs_data-vendor-header-object_task = cs_context-vendor_task.
+
+    IF is_prov-partner IS NOT INITIAL.
+      cs_data-vendor-header-object_instance-lifnr = cs_prov-partner.
+    ENDIF.
+    IF cs_prov-c_fisc_mx IS NOT INITIAL.
+      cs_data-vendor-central_data-central-data-konzs = cs_prov-c_fisc_mx.
+      cs_data-vendor-central_data-central-datax-konzs = abap_true.
+    ENDIF.
+
+    IF is_prov-rcomp IS NOT INITIAL.
+      cs_data-vendor-central_data-central-data-vbund = cs_prov-rcomp.
+      cs_data-vendor-central_data-central-datax-vbund = abap_true.
+    ENDIF.
+
     IF cs_prov-stkzn IS NOT INITIAL.
       cs_data-vendor-central_data-central-data-stkzn = cs_prov-stkzn.
       cs_data-vendor-central_data-central-datax-stkzn = abap_true.
