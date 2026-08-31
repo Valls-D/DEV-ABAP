@@ -2166,42 +2166,23 @@ ENDFORM.                    " MIG_ACCESS_SOC_ES
 *       text
 *----------------------------------------------------------------------*
 FORM migr_soc_modl USING VALUE(l_bukrs)
-                         VALUE(l_index)
-                   CHANGING l_aprob.
+                         VALUE(iv_index)
+                   CHANGING cv_aprob.
 
-  DATA lv_mess(100).
   DATA lv_quest TYPE string.
   DATA lv_conf(1).
 
   DATA lv_subrc TYPE i.
+  DATA:
+    ls_prov    TYPE zfieprov,
+    lv_success TYPE abap_bool,
+    lv_message TYPE string.
 
   SELECT SINGLE * FROM lfb1 WHERE bukrs = lt_t_1-bukrs AND
                                   lifnr = lt_t_1-partner.
 
   lv_subrc = sy-subrc.
   IF lv_subrc = 0 AND lv_migr IS INITIAL..
-
-*    MOVE text-017 TO lv_quest.
-*    REPLACE '&1' WITH lt_t_1-bukrs INTO lv_quest.
-*    REPLACE '&2' WITH lt_t_1-lifnr INTO lv_quest.
-
-*    CALL FUNCTION 'POPUP_TO_CONFIRM'
-*      EXPORTING
-*        titlebar              = text-015
-*        text_question         = lv_quest
-*        default_button        = '1'
-*        display_cancel_button = ''
-*        start_column          = 25
-*        start_row             = 6
-*      IMPORTING
-*        answer                = lv_conf.
-*
-*    IF lv_conf = '2'.
-*      .
-** Proceso continua
-*      l_aprob = 1.
-*
-*    ELSE.
 
     MESSAGE TEXT-017 TYPE 'I'.
 
@@ -2210,9 +2191,7 @@ FORM migr_soc_modl USING VALUE(l_bukrs)
     REPLACE '&2' WITH lt_t_1-partner INTO lv_quest.
 
     lt_t_1-error = lv_quest.
-    MODIFY lt_t_1 INDEX l_index.
-
-*    ENDIF.
+    MODIFY lt_t_1 INDEX iv_index.
 
     EXIT.
 
@@ -2220,19 +2199,33 @@ FORM migr_soc_modl USING VALUE(l_bukrs)
 
   IF lv_subrc = 0 AND NOT lv_migr IS INITIAL.
 
-    l_aprob = 1.
+    cv_aprob = 1.
     EXIT.
 
   ENDIF.
 
-  PERFORM crea_sociedad_mod USING l_bukrs
-                             CHANGING l_aprob lv_mess.
+  " Datos de la sociedad destino T_T_1-BUKRS ya contiene la sociedad a crear.
+  ls_prov = CORRESPONDING #( lt_t_1 ).
 
-  IF l_aprob IS INITIAL.
+  DATA(lo_bp) = NEW zcl_bp( ).
 
-    lt_t_1-error = lv_mess.
+  DATA(ls_result) = lo_bp->maintain_company_reference(
+  EXPORTING
+    iv_ref_bukrs = l_bukrs       " Sociedad modelo/origen
+  CHANGING
+    cs_prov      = ls_prov ).    " BUKRS = sociedad destino
+
+  lv_success = ls_result-success.
+  lv_message = ls_result-message.
+
+  IF lv_success = abap_true.
+    cv_aprob = 1.
+  ELSE.
+    CLEAR: cv_aprob.
+
+    lt_t_1-error = lv_message.
     lt_t_1-bukrs = l_bukrs.
-    MODIFY lt_t_1 INDEX l_index.
+    MODIFY lt_t_1 INDEX iv_index TRANSPORTING bukrs error.
 
   ENDIF.
 
@@ -5115,6 +5108,14 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
       RETURNING
         VALUE(rs_result) TYPE ty_result.
 
+    METHODS maintain_company_reference
+      IMPORTING
+        iv_ref_bukrs     TYPE bukrs
+      CHANGING
+        cs_prov          TYPE zfieprov
+      RETURNING
+        VALUE(rs_result) TYPE ty_result.
+
   PRIVATE SECTION.
 
     METHODS determine_context
@@ -6140,6 +6141,172 @@ CLASS zcl_bp IMPLEMENTATION.
 
       cs_result-message =  'Error al mantener el Business Partner'.
 
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD maintain_company_reference.
+
+    DATA:
+      ls_extract_vendor TYPE vmds_ei_extern,
+      ls_extract_input  TYPE vmds_ei_main,
+      ls_extract_output TYPE vmds_ei_main,
+      ls_extract_error  TYPE cvis_message,
+      ls_data           TYPE cvis_ei_extern.
+
+    IF cs_prov-partner IS INITIAL OR cs_prov-bukrs IS INITIAL OR iv_ref_bukrs IS INITIAL.
+
+      rs_result-success = abap_false.
+      rs_result-message = 'Faltan proveedor, sociedad destino o sociedad de referencia'.
+      RETURN.
+
+    ENDIF.
+
+    cs_prov-partner = |{ cs_prov-partner ALPHA = IN }|.
+
+    " Recuperar GUID del BP existente
+    SELECT SINGLE partner_guid
+    FROM but000
+    WHERE partner = @cs_prov-partner
+    INTO @DATA(lv_partner_guid).
+
+    IF sy-subrc <> 0.
+      rs_result-success = abap_false.
+      rs_result-message = |El BP { cs_prov-partner } NO existe|.
+      RETURN.
+    ENDIF.
+
+    " Leer mediante API los datos actuales del Supplier
+    ls_extract_vendor-header-object_task = gc_task_modify.
+    ls_extract_vendor-header-object_instance-lifnr = cs_prov-partner.
+
+    APPEND ls_extract_vendor TO ls_extract_input-vendors.
+
+    vmd_ei_api_extract=>get_data(
+    EXPORTING
+      is_master_data = ls_extract_input
+    IMPORTING
+      es_master_data = ls_extract_output
+      es_error       = ls_extract_error ).
+
+    IF ls_extract_error-is_error = abap_true.
+      rs_result-success = abap_false.
+      rs_result-message =
+      |NO se pudieron recuperar los datos del proveedor { cs_prov-partner }|.
+      RETURN.
+    ENDIF.
+
+    " Recuperar Supplier extraído
+    READ TABLE ls_extract_output-vendors
+    ASSIGNING FIELD-SYMBOL(<fs_vendor>)
+    INDEX 1.
+
+    IF sy-subrc <> 0.
+      rs_result-success = abap_false.
+      rs_result-message =
+      |NO se encontraron datos del proveedor { cs_prov-partner }|.
+      RETURN.
+    ENDIF.
+
+    " Recuperar exactamente la sociedad que actuaba como modelo en FK01 / RF02K-REF_BUKRS
+    READ TABLE <fs_vendor>-company_data-company INTO DATA(ls_company) WITH KEY data_key-bukrs = iv_ref_bukrs.
+
+    IF sy-subrc <> 0.
+      rs_result-success = abap_false.
+      rs_result-message =
+      |El proveedor { cs_prov-partner } NO existe en la sociedad modelo { iv_ref_bukrs }|.
+      RETURN.
+    ENDIF.
+
+    " Preparar extensión del BP/Supplier existente
+    ls_data-partner-header-object_task = gc_task_update.
+    ls_data-partner-header-object_instance-bpartner     = cs_prov-partner.
+    ls_data-partner-header-object_instance-bpartnerguid = lv_partner_guid.
+
+    ls_data-vendor-header-object_task = gc_task_update.
+    ls_data-vendor-header-object_instance-lifnr = cs_prov-partner.
+
+    " Convertir la sociedad modelo en una NUEVA sociedad
+    ls_company-task = gc_task_insert.
+
+    " Sociedad destino
+    ls_company-data_key-bukrs = cs_prov-bukrs.
+
+
+    CLEAR:
+    ls_company-data-sperr, ls_company-datax-sperr,
+    ls_company-data-loevm,  ls_company-datax-loevm,
+    ls_company-data-zahls, ls_company-datax-zahls.
+
+    " Las áreas de reclamación pertenecen ahora a la nueva sociedad.
+    LOOP AT ls_company-dunning-dunning ASSIGNING FIELD-SYMBOL(<fs_dunning>).
+      <fs_dunning>-task = gc_task_insert.
+    ENDLOOP.
+
+    " Las retenciones que se copien desde la sociedad modelo también son nuevas asignaciones para la sociedad destino
+    LOOP AT ls_company-wtax_type-wtax_type ASSIGNING FIELD-SYMBOL(<fs_wtax>).
+      <fs_wtax>-task = gc_task_insert.
+    ENDLOOP.
+
+    " Tratamiento especial que hacía CREA_SOCIEDAD_MOD para ZTER
+    IF cs_prov-bu_group = 'ZTER'.
+
+      " País de retención
+      ls_company-data-qland  = cs_prov-pais_r.
+      ls_company-datax-qland = abap_true.
+
+      IF cs_prov-wt_withcd IS NOT INITIAL.
+
+        " El código antiguo obtenía WITHT de T059Z
+        SELECT SINGLE witht
+        FROM t059z
+        WHERE land1     = @cs_prov-pais
+        AND wt_withcd = @cs_prov-wt_withcd
+        INTO @DATA(lv_witht).
+
+        IF sy-subrc = 0.
+
+          READ TABLE ls_company-wtax_type-wtax_type ASSIGNING FIELD-SYMBOL(<fs_zter_wtax>) WITH KEY data_key-witht = lv_witht.
+
+          IF sy-subrc <> 0.
+
+            APPEND INITIAL LINE TO ls_company-wtax_type-wtax_type ASSIGNING <fs_zter_wtax>.
+            <fs_zter_wtax>-data_key-witht = lv_witht.
+
+          ENDIF.
+
+          <fs_zter_wtax>-task = gc_task_insert.
+
+          <fs_zter_wtax>-data-wt_withcd = cs_prov-wt_withcd.
+
+          <fs_zter_wtax>-datax-wt_withcd = abap_true.
+
+          <fs_zter_wtax>-data-wt_subjct = abap_true.
+
+          <fs_zter_wtax>-datax-wt_subjct = abap_true.
+
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+    " Añadir sociedad destino
+    APPEND ls_company
+    TO ls_data-vendor-company_data-company.
+
+    " Ejecutar CL_MD_BP_MAINTAIN
+    DATA(lt_return) = call_api( is_data = ls_data ).
+
+    rs_result = evaluate_return( it_return = lt_return ).
+
+    rs_result-return  = lt_return.
+    rs_result-partner = cs_prov-partner.
+
+    IF rs_result-success = abap_true.
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+    ELSE.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
     ENDIF.
 
   ENDMETHOD.
