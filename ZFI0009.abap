@@ -2235,20 +2235,29 @@ ENDFORM.                    " MIGR_SOC_MODL
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM migr_soc_modif USING VALUE(l_index)
-                   CHANGING l_aprob.
+FORM migr_soc_modif
+USING VALUE(iv_index)
+CHANGING cv_aprob.
+  DATA:
+    ls_prov   TYPE zfieprov,
+    ls_result TYPE ty_result.
 
-  DATA lv_mess(100).
+  CLEAR cv_aprob.
+  ls_prov = CORRESPONDING #( lt_t_1 ).
 
-  PERFORM modif_sociedad CHANGING l_aprob lv_mess.
-  IF l_aprob IS INITIAL.
+  DATA(lo_bp) = NEW zcl_bp( ).
 
-    lt_t_1-error = lv_mess.
-    MODIFY lt_t_1 INDEX l_index.
+  ls_result = lo_bp->maintain_company_update(
+  CHANGING  cs_prov = ls_prov ).
 
+  IF ls_result-success = abap_true.
+    cv_aprob = 1.
+  ELSE.
+    lt_t_1-error = ls_result-message.
+    MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
   ENDIF.
 
-ENDFORM.                    " MIGR_SOC_MODIF
+ENDFORM.                     " MIGR_SOC_MODIF
 *&---------------------------------------------------------------------*
 *&      Form  TR_MIGR_1
 *&---------------------------------------------------------------------*
@@ -3759,45 +3768,31 @@ ENDFORM.                    " MODIF_SOCIEDAD_1
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_bloq_soc USING VALUE(l_index)
-                   CHANGING l_aprob.
+FORM tr_bloq_soc
+USING VALUE(iv_index)
+CHANGING cv_aprob.
 
-  DATA lv_mess(100).
-  DATA lv_lifnr LIKE zfitprov-partner.
+  DATA:
+    ls_prov   TYPE zfieprov,
+    ls_result TYPE ty_result.
 
-  REFRESH bdcdata.
+  " Preparar proveedor/sociedad actual
+  ls_prov = CORRESPONDING #( lt_t_1 ).
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0505'.
+  " Bloquear contabilización en la sociedad actual
+  DATA(lo_bp) = NEW zcl_bp( ).
 
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                              lt_t_1-bukrs.
+  ls_result = lo_bp->maintain_company_block(
+  CHANGING cs_prov = ls_prov ).
 
-  PERFORM bdc_field       USING 'RF02K-LIFNR'
-                              lt_t_1-partner.
+  IF ls_result-success = abap_true.
+    cv_aprob = 1.
+  ELSE.
 
-*************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0510'.
-
-  PERFORM bdc_field       USING 'LFB1-SPERR'
-                              'X'.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              'UPDA'.
-
-  PERFORM call_transaction  USING 'FK05'
-                                 'F2'
-                                 '056'
-                           CHANGING l_aprob
-                                    lv_mess
-                                    lv_lifnr.
-
-  IF l_aprob IS INITIAL.
-
-    lt_t_1-error = lv_mess.
-    MODIFY lt_t_1 INDEX l_index.
-
+    CLEAR cv_aprob.
+    lt_t_1-error = ls_result-message.
+    MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
   ENDIF.
-
 ENDFORM.                    " TR_BLOQ_SOC
 *&---------------------------------------------------------------------*
 *&      Form  TR_APROB_CONF_MODIF
@@ -5116,6 +5111,18 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
       RETURNING
         VALUE(rs_result) TYPE ty_result.
 
+    METHODS maintain_company_block
+      CHANGING
+        cs_prov          TYPE zfieprov
+      RETURNING
+        VALUE(rs_result) TYPE ty_result.
+
+    METHODS maintain_company_update
+      CHANGING
+        cs_prov          TYPE zfieprov
+      RETURNING
+        VALUE(rs_result) TYPE ty_result.
+
   PRIVATE SECTION.
 
     METHODS determine_context
@@ -6310,6 +6317,211 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
 
   ENDMETHOD.
+
+  METHOD maintain_company_block.
+
+    DATA ls_data TYPE cvis_ei_extern.
+
+    CHECK cs_prov-partner IS NOT INITIAL AND cs_prov-bukrs IS NOT INITIAL.
+
+    " Normalizar proveedor
+    cs_prov-partner = |{ cs_prov-partner ALPHA = IN }|.
+
+    " Recuperar GUID del BP existente
+    SELECT SINGLE partner_guid
+    FROM but000
+    WHERE partner = @cs_prov-partner
+    INTO @DATA(lv_partner_guid).
+
+    IF sy-subrc <> 0.
+      rs_result-success = abap_false.
+      rs_result-message = |El BP { cs_prov-partner } NO existe|.
+      RETURN.
+    ENDIF.
+
+    " Comprobar que el proveedor está extendido a la sociedad
+    SELECT SINGLE @abap_true
+    FROM lfb1
+    WHERE lifnr = @cs_prov-partner
+    AND bukrs = @cs_prov-bukrs
+    INTO @DATA(lv_exists).
+
+    IF sy-subrc <> 0.
+      rs_result-success = abap_false.
+      rs_result-message = |El proveedor { cs_prov-partner } NO existe en la sociedad { cs_prov-bukrs }|.
+      RETURN.
+    ENDIF.
+
+    " BP existente
+    ls_data-partner-header-object_task = gc_task_update.
+
+    ls_data-partner-header-object_instance-bpartner = cs_prov-partner.
+
+    ls_data-partner-header-object_instance-bpartnerguid = lv_partner_guid.
+
+    " Supplier existente
+    ls_data-vendor-header-object_task = gc_task_update.
+
+    ls_data-vendor-header-object_instance-lifnr = cs_prov-partner.
+
+    " Sociedad existente
+    APPEND INITIAL LINE TO ls_data-vendor-company_data-company ASSIGNING FIELD-SYMBOL(<fs_company>).
+
+    <fs_company>-task = gc_task_update.
+
+    <fs_company>-data_key-bukrs = cs_prov-bukrs.
+
+    " Equivalente al antiguo FK05: LFB1-SPERR = X
+    <fs_company>-data-sperr = abap_true.
+
+    <fs_company>-datax-sperr = abap_true.
+
+    " Ejecutar API
+    DATA(lt_return) =  call_api( is_data = ls_data ).
+
+    rs_result = evaluate_return( it_return = lt_return ).
+
+    rs_result-return  = lt_return.
+    rs_result-partner = cs_prov-partner.
+
+    IF rs_result-success = abap_true.
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+    ELSE.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD maintain_company_update.
+
+    DATA:
+          ls_data TYPE cvis_ei_extern.
+
+    FIELD-SYMBOLS:
+      <fs_company> TYPE vmds_ei_company,
+      <fs_wtax>    TYPE vmds_ei_wtax_type.
+
+    IF cs_prov-partner IS INITIAL OR cs_prov-bukrs IS INITIAL.
+
+      rs_result-success = abap_false.
+      rs_result-message = 'Faltan proveedor o sociedad para la modificación'.
+      RETURN.
+    ENDIF.
+
+    cs_prov-partner = |{ cs_prov-partner ALPHA = IN }|.
+
+    " Recuperar BP existente
+    SELECT SINGLE partner_guid
+    FROM but000
+    WHERE partner = @cs_prov-partner
+    INTO @DATA(lv_partner_guid).
+
+    IF sy-subrc <> 0.
+      rs_result-success = abap_false.
+      rs_result-message = |El BP { cs_prov-partner } NO existe|.
+      RETURN.
+    ENDIF.
+
+    " Comprobar sociedad existente - FK02 únicamente modificaba una sociedad ya creada
+    SELECT SINGLE @abap_true
+    FROM lfb1
+    WHERE lifnr = @cs_prov-partner
+    AND bukrs = @cs_prov-bukrs
+    INTO @DATA(lv_company_exists).
+
+    IF sy-subrc <> 0.
+      rs_result-success = abap_false.
+      rs_result-message = |El proveedor { cs_prov-partner } NO existe en la sociedad { cs_prov-bukrs }|.
+      RETURN.
+    ENDIF.
+
+    " BP existente
+    ls_data-partner-header-object_task = gc_task_update.
+
+    ls_data-partner-header-object_instance-bpartner = cs_prov-partner.
+
+    ls_data-partner-header-object_instance-bpartnerguid = lv_partner_guid.
+
+    " Supplier existente
+    ls_data-vendor-header-object_task = gc_task_update.
+
+    ls_data-vendor-header-object_instance-lifnr = cs_prov-partner.
+
+    " Sociedad existente
+    APPEND INITIAL LINE TO ls_data-vendor-company_data-company ASSIGNING <fs_company>.
+
+    <fs_company>-task = gc_task_update.
+    <fs_company>-data_key-bukrs = cs_prov-bukrs.
+
+    " FK02 antiguo: LFB1-AKONT solo se modificaba si venía informado
+    IF cs_prov-akont IS NOT INITIAL.
+      <fs_company>-data-akont = cs_prov-akont.
+      <fs_company>-datax-akont = abap_true.
+    ENDIF.
+
+    " Verificación de facturas dobles:
+    " el BDC siempre establecía REPRF = X
+    <fs_company>-data-reprf = abap_true.
+
+    <fs_company>-datax-reprf = abap_true.
+
+    " Condiciones de pago
+    IF cs_prov-zterm IS NOT INITIAL.
+      <fs_company>-data-zterm = cs_prov-zterm.
+      <fs_company>-datax-zterm = abap_true.
+    ENDIF.
+
+    " Vías de pago
+    IF cs_prov-zwels IS NOT INITIAL.
+      <fs_company>-data-zwels = cs_prov-zwels.
+      <fs_company>-datax-zwels = abap_true.
+    ENDIF.
+
+    " Datos de retención- Equivalente a CREA_SOCIEDAD_3
+    <fs_company>-data-qland = cs_prov-pais_r.
+
+    <fs_company>-datax-qland = abap_true.
+
+    IF cs_prov-witht IS NOT INITIAL AND cs_prov-wt_withcd IS NOT INITIAL.
+
+      " Determinar si la retención ya existe
+      SELECT SINGLE @abap_true
+      FROM lfbw
+      WHERE lifnr = @cs_prov-partner
+      AND bukrs = @cs_prov-bukrs
+      AND witht = @cs_prov-witht
+      INTO @DATA(lv_wtax_exists).
+
+      APPEND INITIAL LINE TO <fs_company>-wtax_type-wtax_type ASSIGNING <fs_wtax>.
+
+      <fs_wtax>-task = COND #( WHEN sy-subrc = 0
+      THEN gc_task_update ELSE gc_task_insert ).
+
+      <fs_wtax>-data_key-witht = cs_prov-witht.
+      <fs_wtax>-data-wt_withcd = cs_prov-wt_withcd.
+      <fs_wtax>-datax-wt_withcd = abap_true.
+
+      " El BDC siempre informaba sujeto a retención
+      <fs_wtax>-data-wt_subjct = abap_true.
+      <fs_wtax>-datax-wt_subjct = abap_true.
+    ENDIF.
+
+    " Ejecutar CL_MD_BP_MAINTAIN
+    DATA(lt_return) = call_api( is_data = ls_data ).
+
+    rs_result = evaluate_return( it_return = lt_return ).
+    rs_result-return  = lt_return.
+    rs_result-partner = cs_prov-partner.
+
+    IF rs_result-success = abap_true.
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+    ELSE.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+    ENDIF.
+  ENDMETHOD.
 ENDCLASS.
 
 FORM bp_maintain_request
@@ -6351,5 +6563,6 @@ CHANGING
       APPEND lt_log.
     ENDLOOP.
   ENDLOOP.
+
 
 ENDFORM.
