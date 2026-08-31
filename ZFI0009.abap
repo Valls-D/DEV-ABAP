@@ -746,7 +746,7 @@ CHANGING cv_aprob.
   ELSE.
 
     " Flujo funcional
-    PERFORM crea_acreedor_conf_v2  CHANGING cv_aprob lv_ch.
+    PERFORM crea_acreedor_conf_v2 CHANGING cv_aprob lv_ch.
   ENDIF.
 
   " Usuario canceló o no debe continuar
@@ -754,29 +754,27 @@ CHANGING cv_aprob.
 
   CLEAR: cv_aprob, lt_t_1-error.
 
-  " CREA_ACREEDOR_CONF_V2 puede haber encontrado un proveedor
-  " existente por CIF
-  " Si el usuario ha decidido utilizarlo, GV_LIFNR contiene
-  " el proveedor que debe mantenerse
-  IF lt_t_1-partner IS INITIAL AND gv_lifnr IS NOT INITIAL.
+  IF  gv_lifnr IS NOT INITIAL.
     lt_t_1-partner = gv_lifnr.
   ENDIF.
 
-  ls_prov = lt_t_1.
+  ls_prov = CORRESPONDING #( lt_t_1 ).
 
   " Alta / actualización mediante CL_MD_BP_MAINTAIN
   PERFORM bp_maintain_request
   CHANGING ls_prov lv_success lv_partner lv_message.
 
   IF lv_success = abap_true.
+    " Para BP nuevo, MAINTAIN_BP devuelve el partner generado.
+    IF lv_partner IS INITIAL.
+      lv_partner = ls_prov-partner.
+    ENDIF.
 
     lt_t_1-partner = lv_partner.
     gv_lifnr       = lv_partner.
 
-    " Reflejar posibles cambios hechos por la clase
-    " (principalmente el PARTNER generado).
     MOVE-CORRESPONDING ls_prov TO lt_t_1.
-    MODIFY lt_t_1 INDEX iv_index.
+    MODIFY lt_t_1 INDEX iv_index TRANSPORTING partner error..
     cv_aprob = 1.
 
     " Mantener navegación de migración
@@ -787,46 +785,8 @@ CHANGING cv_aprob.
     " Error API
     CLEAR cv_aprob.
     lt_t_1-error = lv_message.
-    MODIFY lt_t_1 INDEX iv_index.
+    MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
   ENDIF.
-
-*  lv_totac = 0.
-*  lv_tot = 0.
-*  lv_verif = 0.
-*  PERFORM verif.
-*
-*  IF NOT lv_verif IS INITIAL.   " Linea error
-*
-*    PERFORM crear_message.
-*  ELSE.
-*
-*    PERFORM confirm.
-*    IF NOT lv_confirm IS INITIAL.   " Confirmado envío
-*
-**** INICIO MODIFICACIÓN EMG 12/05/2009
-*      REFRESH lt_log.
-**** FIN MODIFICACIÓN EMG 12/05/2009
-*
-*      PERFORM tr_aprob_conf.
-*
-*      PERFORM tr_aprob_conf_modif.
-*** inicio CGR 10/02/2009
-*      LOOP AT lt_log.
-*        IF lt_log-msgv1 = 'LFB1-QLAND'.
-*          lt_log-msgv1 = 'País de retención'.
-*        ENDIF.
-*        MODIFY lt_log.
-*      ENDLOOP.
-*** fin CGR 10/02/2009
-**** INICIO MODIFICACIÓN EMG 12/05/2009
-*      CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
-*        TABLES
-*          i_message_tab = lt_log.
-**** FIN MODIFICACIÓN EMG 12/05/2009
-*
-*      MESSAGE s025(zfi01) WITH lv_totac lv_tot.
-*    ENDIF.
-*  ENDIF.
 
 ENDFORM.                    " TR_APROB
 *&---------------------------------------------------------------------*
@@ -1613,10 +1573,6 @@ FORM tr_aprob_conf .
 ** Bloqueo Sociedad
 *      PERFORM tr_bloq_soc USING lv_index CHANGING lv_aprob.
 *    ENDIF.
-
-    " Datos generales + sociedad / compras
-    " El bloqueo LFB1-SPERR ya se informa dentro de MAP_COMPANY_DATA.
-    PERFORM tr_aprob_sol  USING lv_index  CHANGING lv_aprob.
 
 * Grupos de sincronización / Sociedades ES ( Migración ES )
     IF ( lt_t_1-repl EQ 'X' OR NOT lv_migr IS INITIAL ) AND
@@ -2678,124 +2634,67 @@ ENDFORM.                    " TR_ACRE
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_aprob_sol USING VALUE(l_index)
-                   CHANGING l_aprob.
+FORM tr_aprob_sol
+USING VALUE(iv_index)
+CHANGING cv_aprob.
 
-  DATA lv_mess(100).
   DATA lv_ch TYPE i.
-  DATA lv_lifnr LIKE zfitprov-partner.
+  DATA: lv_lifnr   LIKE zfitprov-partner,
+        lv_success TYPE abap_bool,
+        lv_partner TYPE bu_partner,
+        lv_message TYPE string,
+        ls_prov    TYPE zfieprov.
 
   IF NOT lv_migr IS INITIAL.
 * Migración
-    PERFORM crea_acreedor_conf_m CHANGING l_aprob
+    PERFORM crea_acreedor_conf_m CHANGING cv_aprob
                                          lv_ch
                                          lv_lifnr.
 
   ELSE.
 * Funcional
-    PERFORM crea_acreedor_conf_v2 CHANGING l_aprob
+    PERFORM crea_acreedor_conf_v2 CHANGING cv_aprob
                                          lv_ch.
 
   ENDIF.
 
-  CHECK NOT l_aprob IS INITIAL.
+  CHECK NOT cv_aprob IS INITIAL.
 
-  CLEAR l_aprob.
+  CLEAR cv_aprob.
   CLEAR lt_t_1-error.
 
-  IF lv_ch IS INITIAL.
-    IF gv_lifnr IS INITIAL.
+  IF gv_lifnr IS NOT INITIAL.
+    lt_t_1-partner = gv_lifnr.
+  ENDIF.
+  ls_prov = CORRESPONDING #( lt_t_1 ).
 
-*---------------------------------------------------------------------*
-*           INICIO MODIFICACIÓN
-*---------------------------------------------------------------------*
-* Autor: Marta Vall Armengol
-* Fecha: 04.06.2008
-*---------------------------------------------------------------------*
-* En el caso de la sociedad 8300 no tiene organización de compras
-* por eso vamos a crear directamente el acreedor por la transacción
-* fk01
-*---------------------------------------------------------------------*
+  PERFORM bp_maintain_request
+  CHANGING ls_prov lv_success lv_partner lv_message.
 
-      SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
-      IF sy-subrc EQ 0.
+  IF lv_success = abap_true.
 
-        PERFORM crea_acreedor CHANGING l_aprob lv_mess lv_lifnr.
+    cv_aprob = 1.
 
-      ENDIF.
-*    ELSE.
-*      l_aprob = 1.
-*    ENDIF.
-      WAIT UP TO 2 SECONDS."JGOR 26.01.2018
-
-      SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
-      IF sy-subrc EQ 0.
-        IF NOT l_aprob IS INITIAL.
-          l_aprob = 0.
-          IF gv_lifnr IS INITIAL.
-            lt_t_1-partner = lv_lifnr.
-*            PERFORM tr_tr_act_calle2 USING lv_lifnr."aayala
-          ELSE.
-            lt_t_1-partner = gv_lifnr.
-*        PERFORM tr_tr_act_calle2 USING gv_lifnr.
-          ENDIF.
-
-
-
-          IF NOT lv_migr IS INITIAL.
-* Migración
-            PERFORM act_provnav.
-
-          ENDIF.
-
-          PERFORM crea_sociedad CHANGING l_aprob lv_mess.
-        ENDIF.
-
-      ELSE.
-*      IF NOT l_aprob IS INITIAL.
-*        l_aprob = 0.
-*        IF gv_lifnr IS INITIAL.
-*          lt_t_1-lifnr = lv_lifnr.
-*          PERFORM tr_tr_act_calle2 USING lv_lifnr.
-*        ELSE.
-*          lt_t_1-lifnr = gv_lifnr.
-**        PERFORM tr_tr_act_calle2 USING gv_lifnr.
-*        ENDIF.
-
-
-
-        IF NOT lv_migr IS INITIAL.
-* Migración
-          PERFORM act_provnav.
-
-        ENDIF.
-* societat que no te organització de compres
-        PERFORM crea_sociedad_8300 CHANGING l_aprob lv_mess.
-*      PERFORM crea_sociedad CHANGING l_aprob lv_mess.
-*Marta: 05.06.2008
-*    ENDIF.
-*  ENDIF.
-
-      ENDIF.
+    IF lv_partner IS INITIAL.
+      lv_partner = ls_prov-partner.
     ENDIF.
-    IF l_aprob IS INITIAL.
 
-      lt_t_1-error = lv_mess.
-      MODIFY lt_t_1 INDEX l_index.
+    lt_t_1-partner = lv_partner.
+    gv_lifnr       = lv_partner.
 
+    MODIFY lt_t_1 INDEX iv_index TRANSPORTING partner error.
+
+    IF lv_migr IS NOT INITIAL.
+      PERFORM act_provnav.
     ENDIF.
 
   ELSE.
-*** INICIO MODIFICACIÓN EMG 22/10/2008
-*    l_aprob = 1.
-    PERFORM crea_sociedad CHANGING l_aprob lv_mess.
-    IF l_aprob EQ 0.
-      CLEAR: l_aprob.
-      l_aprob = -1.
-    ENDIF.
-*** FIN MODIFICACIÓN EMG 22/10/2008
-  ENDIF.
 
+    CLEAR cv_aprob.
+    lt_t_1-error = lv_message.
+    MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
+
+  ENDIF.
 ENDFORM.                    " TR_APROB_SOL
 *&---------------------------------------------------------------------*
 *&      Form  MIGR_TR_APROB_SOL
@@ -5575,7 +5474,7 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
 
     cs_data-partner-central_data-common-data-bp_centraldata-partnertype = cs_prov-bu_group.
-    cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = cs_prov-bu_group.
+    cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = abap_true.
     cs_data-partner-central_data-common-data-bp_organization-name1 = cs_prov-name1.
     cs_data-partner-central_data-common-datax-bp_organization-name1 =  abap_true.
     cs_data-partner-central_data-common-data-bp_organization-name2 = cs_prov-name2.
@@ -5688,7 +5587,7 @@ CLASS zcl_bp IMPLEMENTATION.
     " NIF3 ZFIEPROV-STCD3 -> DFKKBPTAXNUM-TAXNUM
     IF cs_prov-stcd3 IS NOT INITIAL.
 
-      lv_taxtype1 = |{ cs_prov-pais }3|.
+      lv_taxtype3 = |{ cs_prov-pais }3|.
       CLEAR: lv_cif.
       lv_cif = CONV string( cs_prov-stcd3 ).
 
@@ -5854,14 +5753,15 @@ CLASS zcl_bp IMPLEMENTATION.
       " Comprobar si el BP ya tiene asignado ese mismo ramo
       IF cs_prov-partner IS NOT INITIAL.
 
-        SELECT SINGLE @abap_true
+        SELECT SINGLE ind_sector
         FROM but0is
         WHERE partner = @cs_prov-partner
         AND istype = @lv_istype
-        AND ind_sector = @cs_prov-brsch
-        INTO @DATA(lv_exists).
+        INTO @DATA(lv_old_sector).
 
-        IF sy-subrc = 0.
+        IF sy-subrc <> 0.
+          lv_task = gc_task_insert.
+        ELSEIF lv_old_sector = cs_prov-brsch.
           lv_task = gc_task_update.
         ENDIF.
       ENDIF.
