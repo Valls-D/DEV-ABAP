@@ -725,68 +725,50 @@ endmodule.                 " TCTRL_ZAHLWEGE_BLAETTERN  INPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_aprob
-USING VALUE(iv_index)
-CHANGING cv_aprob.
+FORM tr_aprob.
 
-  DATA:
-    lv_ch      TYPE i,
-    lv_lifnr   LIKE zfitprov-partner,
-    lv_success TYPE abap_bool,
-    lv_partner TYPE bu_partner,
-    lv_message TYPE string,
-    ls_prov    TYPE zfieprov.
+  CLEAR: lv_totac, lv_tot, lv_verif.
 
-  " Mantener la lógica funcional existente de identificación
-  " y confirmación de proveedores duplicados/existentes.
-  "
-  IF lv_migr IS NOT INITIAL.
-    " Migración
-    PERFORM crea_acreedor_conf_m CHANGING cv_aprob lv_ch lv_lifnr.
-  ELSE.
+  " Validar las solicitudes seleccionadas
+  PERFORM verif.
 
-    " Flujo funcional
-    PERFORM crea_acreedor_conf_v2 CHANGING cv_aprob lv_ch.
+  IF lv_verif IS NOT INITIAL.
+    PERFORM crear_message.
+    RETURN.
   ENDIF.
 
-  " Usuario canceló o no debe continuar
-  CHECK cv_aprob IS NOT INITIAL.
+  " Confirmación previa del usuario
+  PERFORM confirm.
 
-  CLEAR: cv_aprob, lt_t_1-error.
+  CHECK lv_confirm IS NOT INITIAL.
 
-  IF  gv_lifnr IS NOT INITIAL.
-    lt_t_1-partner = gv_lifnr.
-  ENDIF.
+  " Limpiar log antes de procesar las solicitudes
+  REFRESH lt_log.
 
-  ls_prov = CORRESPONDING #( lt_t_1 ).
+  " Solicitudes funcionales + migración 1
+  PERFORM tr_aprob_conf.
 
-  " Alta / actualización mediante CL_MD_BP_MAINTAIN
-  PERFORM bp_maintain_request
-  CHANGING ls_prov lv_success lv_partner lv_message.
+  " Migración 2
+  PERFORM tr_aprob_conf_modif.
 
-  IF lv_success = abap_true.
-    " Para BP nuevo, MAINTAIN_BP devuelve el partner generado.
-    IF lv_partner IS INITIAL.
-      lv_partner = ls_prov-partner.
+  " Mantener tratamiento existente de mensajes
+  LOOP AT lt_log.
+
+    IF lt_log-msgv1 = 'LFB1-QLAND'.
+      lt_log-msgv1 = 'País de retención'.
     ENDIF.
 
-    lt_t_1-partner = lv_partner.
-    gv_lifnr       = lv_partner.
+    MODIFY lt_log.
 
-    MOVE-CORRESPONDING ls_prov TO lt_t_1.
-    MODIFY lt_t_1 INDEX iv_index TRANSPORTING partner error..
-    cv_aprob = 1.
+  ENDLOOP.
 
-    " Mantener navegación de migración
-    IF lv_migr IS NOT INITIAL.
-      PERFORM act_provnav.
-    ENDIF.
-  ELSE.
-    " Error API
-    CLEAR cv_aprob.
-    lt_t_1-error = lv_message.
-    MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
-  ENDIF.
+  CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
+    TABLES
+      i_message_tab = lt_log.
+
+  "Total entradas procesadas: &1/&2.
+  MESSAGE s025(zfi01)
+  WITH lv_totac lv_tot.
 
 ENDFORM.                    " TR_APROB
 *&---------------------------------------------------------------------*
@@ -1562,27 +1544,12 @@ FORM tr_aprob_conf .
     lv_aprob = 0.
     lv_tot = lv_tot + 1.
 
-** Inicio CGR 11/02/2010
-    CLEAR: lv_first.
-** Fin CGR CGR 11/02/2010
-
-* Datos Generales + Sociedad / Sociedad
+* Datos Generales
     PERFORM tr_aprob_sol USING lv_index CHANGING lv_aprob.
-
-*    IF NOT lv_aprob IS INITIAL AND NOT lt_t_1-bloq IS INITIAL.
-** Bloqueo Sociedad
-*      PERFORM tr_bloq_soc USING lv_index CHANGING lv_aprob.
-*    ENDIF.
 
 * Grupos de sincronización / Sociedades ES ( Migración ES )
     IF ( lt_t_1-repl EQ 'X' OR NOT lv_migr IS INITIAL ) AND
        NOT lv_aprob IS INITIAL.
-
-** Inicio CGR 10/02/2010
-      IF lv_aprob = -1.
-        lv_first = 'X'.
-      ENDIF.
-** Inicio CGR 10/02/2010
 
       lv_bukrs = lt_t_1-bukrs.
       REFRESH lt_bukrs.
@@ -1620,7 +1587,6 @@ FORM tr_aprob_conf .
           ENDIF.
 ** Inicio CGR 11/02/2009
         ENDIF.
-
 ** Fin CGR 11/02/2009
 
         IF NOT lt_t_1-bloq IS INITIAL.
@@ -1633,20 +1599,10 @@ FORM tr_aprob_conf .
       lt_t_1-bukrs = lv_bukrs.
 
     ENDIF.
-* inicio CGR
-    IF lv_first = 'X' AND lt_t_1-repl = 'X'.
-      CLEAR lv_aprob.
-    ENDIF.
-*fin CGR
-
 
     IF lv_aprob IS INITIAL.
 
       PERFORM tr_grabar_sol USING lv_index.
-
-*** INICIO MODIFICACIÓN EMG 22/10/2008
-    ELSEIF lv_aprob EQ -1.
-*** FIN MODIFICACIÓN EMG 22/10/2008
 
     ELSE.
 
@@ -1935,23 +1891,13 @@ ENDFORM.                    " TR_REFR
 *----------------------------------------------------------------------*
 *        Start new screen                                              *
 *----------------------------------------------------------------------*
-FORM bdc_dynpro USING program dynpro.
-  CLEAR bdcdata.
-  bdcdata-program  = program.
-  bdcdata-dynpro   = dynpro.
-  bdcdata-dynbegin = 'X'.
-  APPEND bdcdata.
-ENDFORM.                    "BDC_DYNPRO
+"BDC_DYNPRO
 
 *----------------------------------------------------------------------*
 *        Insert field                                                  *
 *----------------------------------------------------------------------*
-FORM bdc_field USING fnam fval.
-  CLEAR bdcdata.
-  bdcdata-fnam = fnam.
-  bdcdata-fval = fval.
-  APPEND bdcdata.
-ENDFORM.                    "BDC_FIELD
+"BDC_FIELD
+
 *&---------------------------------------------------------------------*
 *&      Module  USER_COMMAND_9002  INPUT
 *&---------------------------------------------------------------------*
@@ -2257,7 +2203,7 @@ CHANGING cv_aprob.
     MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
   ENDIF.
 
-ENDFORM.                     " MIGR_SOC_MODIF
+ENDFORM.                    " MIGR_SOC_MODIF
 *&---------------------------------------------------------------------*
 *&      Form  TR_MIGR_1
 *&---------------------------------------------------------------------*
@@ -2662,8 +2608,7 @@ CHANGING cv_aprob.
 
   CHECK NOT cv_aprob IS INITIAL.
 
-  CLEAR cv_aprob.
-  CLEAR lt_t_1-error.
+  CLEAR: cv_aprob, lt_t_1-error.
 
   IF gv_lifnr IS NOT INITIAL.
     lt_t_1-partner = gv_lifnr.
@@ -2703,40 +2648,7 @@ ENDFORM.                    " TR_APROB_SOL
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM migr_tr_aprob_sol USING VALUE(l_index)
-                   CHANGING l_aprob.
 
-  DATA lv_mess(100).
-  DATA lv_ch TYPE i.
-  DATA lv_lifnr LIKE zfitprov-partner.
-
-*  L_APROB = 1
-*  LV_CH = 0
-*  LV_LIFNR = ''
-  PERFORM crea_acreedor_conf_m CHANGING l_aprob
-                                        lv_ch
-                                        lv_lifnr.
-
-  PERFORM crea_acreedor CHANGING l_aprob lv_mess lv_lifnr.
-
-  IF l_aprob IS INITIAL.
-
-    lt_t_1-error = lv_mess.
-    MODIFY lt_t_1 INDEX l_index.
-
-  ENDIF.
-
-  CHECK NOT l_aprob IS INITIAL.
-
-  lt_t_1-partner = lv_lifnr.
-
-  IF NOT lv_migr IS INITIAL.
-* Migración
-    PERFORM act_provnav.
-
-  ENDIF.
-
-ENDFORM.                    " MITR_TR_APROB_SOL
 *&---------------------------------------------------------------------*
 *&      Form  CREA_ACREEDOR_CONF
 *&---------------------------------------------------------------------*
@@ -2745,63 +2657,7 @@ ENDFORM.                    " MITR_TR_APROB_SOL
 * APROB -> 1 : Usuario acepta en caso de mismo NIF y Sociedad
 * CH -> 1 : Mismo NIF y diferente Sociedad
 *----------------------------------------------------------------------*
-FORM crea_acreedor_conf CHANGING l_ok TYPE i
-                                 l_ch TYPE i
-                                 l_lifnr TYPE lifnr.
 
-  DATA lv_conf(1).
-
-  DATA lv_quest TYPE string.
-
-  SELECT * UP TO 1 ROWS FROM lfa1 WHERE stcd1 = lt_t_1-cif.
-  ENDSELECT.
-
-  IF sy-subrc <> 0.
-* No existe acreedor con mismo CIF
-    l_ok = 1.
-
-  ENDIF.
-
-  CHECK l_ok IS INITIAL.
-
-  SELECT * UP TO 1 ROWS FROM lfb1 WHERE bukrs = lt_t_1-bukrs AND
-                                        lifnr = lfa1-lifnr.
-  ENDSELECT.
-
-  IF sy-subrc <> 0.
-* Existe acreedor con mismo CIF. La Sociedad no esta creada
-
-    l_lifnr = lfa1-lifnr.
-    l_ch = 1.
-    l_ok = 1.
-
-  ENDIF.
-
-  CHECK l_ok IS INITIAL.
-
-* Existe acreedor con mismo CIF - Sociedad
-
-  MOVE TEXT-016 TO lv_quest.
-  REPLACE '&1' WITH lt_t_1-cif INTO lv_quest.
-
-  CALL FUNCTION 'POPUP_TO_CONFIRM'
-    EXPORTING
-      titlebar              = TEXT-015
-      text_question         = lv_quest
-      default_button        = '2'
-      display_cancel_button = ''
-      start_column          = 25
-      start_row             = 6
-    IMPORTING
-      answer                = lv_conf.
-
-  IF lv_conf = '1'.
-* Se crea un nuevo acreedor
-    l_ok = 1.
-
-  ENDIF.
-
-ENDFORM.                    " CREA_ACREEDOR_CONF
 *&---------------------------------------------------------------------*
 *&      Form  CREA_ACREEDOR_CONF_V2
 *&---------------------------------------------------------------------*
@@ -2911,858 +2767,85 @@ ENDFORM.                    " CREA_ACREEDOR_CONF_M
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_acreedor  CHANGING l_crea
-                             l_mess
-                             l_lifnr.
 
-  DATA lv_mes(3) VALUE '170'.
-
-  REFRESH bdcdata.
-
-  PERFORM crea_acreedor_1.  "DATOS GENERALES
-
-  PERFORM crea_acreedor_2.  "CIF
-
-  PERFORM crea_acreedor_bank.
-
-  PERFORM crea_acreedor_3_.  "CONTACTO
-
-*  IF NOT LT_T_1-WAERS IS INITIAL.
-*ini aayala 17.02.2012
-*  IF lt_t_1-ktokk NE '2040' AND lt_t_1-ktokk NE '2910'.
-*Ini JGOR 26.01.2018
-*  IF ( lt_t_1-ktokk EQ '2010' OR
-*       lt_t_1-ktokk EQ '2020' OR
-*       lt_t_1-ktokk EQ '2030' OR
-*       lt_t_1-ktokk EQ '2050' OR
-*       lt_t_1-ktokk EQ '2910' ).
-*Fin JGOR 26.01.2018
-  PERFORM crea_acreedor_compras. "JLM 18.04.2016 DEVK906904
-*  ENDIF."JGOR 26.01.2018
-*fin aayala 17.02.2012
-  lv_mes = '173'.
-
-*  ENDIF.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              'UPDA'.
-
-  PERFORM call_transaction  USING 'XK01'
-                                 'F2'
-                                  lv_mes
-                           CHANGING l_crea
-                                    l_mess
-                                    l_lifnr.
-
-ENDFORM.                    " CREA_ACREEDOR
 *&---------------------------------------------------------------------*
 *&      Form  CREA_ACREEDOR_1
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_1 .
 
-  DATA lv_ekorg LIKE t024e-ekorg.
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0100'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  PERFORM bdc_field       USING 'RF02K-KTOKK'
-                              lt_t_1-bu_group.
-
-*    PERFORM bdc_field       USING 'RF02K-BUKRS'
-*                                lt_t_1-bukrs.
-
-*  IF NOT LT_T_1-WAERS IS INITIAL.
-*
-*    CLEAR T001K.
-*    SELECT * UP TO 1 ROWS FROM T001K WHERE BUKRS = LT_T_1-BUKRS.
-*    ENDSELECT.
-*
-*    CLEAR T001W.
-*    SELECT * UP TO 1 ROWS FROM T001W WHERE BWKEY = T001K-BWKEY.
-*    ENDSELECT.
-*
-*    IF SY-SUBRC = 0.
-*      LV_EKORG = T001W-EKORG.
-*    ELSE.
-*      LV_EKORG = LT_T_1-BUKRS.
-*    ENDIF.
-
-
-  lv_ekorg = lt_t_1-ekorg.
-*ini aayala 17.02.2012
-
-**********************************************************************
-* Inicio JLM 23.06.2016 DEVK906904
-*  IF lt_t_1-ktokk NE '2040'  AND lt_t_1-ktokk NE '2910'.
-*    PERFORM bdc_field       USING 'RF02K-EKORG'
-*                                lv_ekorg.
-*  ENDIF.
-*Ini JGOR 26.01.2018
-*  IF ( lt_t_1-ktokk EQ '2010' OR
-*       lt_t_1-ktokk EQ '2020' OR
-*       lt_t_1-ktokk EQ '2030' OR
-*       lt_t_1-ktokk EQ '2050' OR
-*       lt_t_1-ktokk EQ '2910' ).
-*Fin JGOR 26.01.2018
-  PERFORM bdc_field       USING 'RF02K-EKORG'
-                             lv_ekorg.
-
-*  ENDIF."JGOR 26.01.2018
-* Fin JLM 23.06.2016DEVK906904
-**********************************************************************
-
-  PERFORM bdc_field       USING 'USE_ZAV'
-                              'X'.
-*  ENDIF.
-*************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0111'.
-
-  PERFORM bdc_field       USING 'ADDR1_DATA-NAME1'
-                              lt_t_1-name1(35).
-  PERFORM bdc_field       USING 'ADDR1_DATA-NAME2'
-                              lt_t_1-name2(35).
-  PERFORM bdc_field       USING 'ADDR1_DATA-SORT1'
-                              lt_t_1-busq.
-  PERFORM bdc_field       USING 'ADDR1_DATA-STREET'
-                              lt_t_1-direc(35).
-*** INICIO MODIFICACIÓN EMG 10/12/2008
-*  PERFORM bdc_field       USING 'ADDR1_DATA-STR_SUPPL1' lt_t_1-direc_2.
-*** FIN MODIFICACIÓN EMG 10/12/2008
-  PERFORM bdc_field       USING 'ADDR1_DATA-CITY1'
-                              lt_t_1-poblac.
-  PERFORM bdc_field       USING 'ADDR1_DATA-POST_CODE1'
-                              lt_t_1-cod_post.
-  PERFORM bdc_field       USING 'ADDR1_DATA-REGION'
-                              lt_t_1-region.
-  PERFORM bdc_field       USING 'ADDR1_DATA-COUNTRY'
-                              lt_t_1-pais.
-  PERFORM bdc_field       USING 'ADDR1_DATA-LANGU'
-                              lt_t_1-spras.
-
-  PERFORM bdc_field       USING 'SZA1_D0100-TEL_NUMBER'
-                              lt_t_1-tel(27).
-  PERFORM bdc_field       USING 'SZA1_D0100-FAX_NUMBER'
-                              lt_t_1-fax(27).
-  PERFORM bdc_field       USING 'SZA1_D0100-SMTP_ADDR'
-                              lt_t_1-smtp.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                               '/00'.
-
-ENDFORM.                    " CREA_ACREEDOR_1
 *&---------------------------------------------------------------------*
 *&      Form  CREA_ACREEDOR_2
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_2 .
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0120'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  IF lt_t_1-bu_group = '2060'.
-
-    PERFORM bdc_field       USING 'LFA1-VBUND'
-                                lt_t_1-rcomp.
-
-  ENDIF.
-  PERFORM bdc_field       USING 'LFA1-KONZS'
-                              lt_t_1-c_fisc_mx.
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-*  IF lt_t_1-ktokk EQ 'ZTGR' ORse elimina para rcd resorts aayala 30.11.2011
-*     lt_t_1-ktokk EQ 'ZTER'.
-  PERFORM bdc_field       USING 'LFA1-BRSCH' lt_t_1-brsch.
-*  ENDIF. se elimina para rcd resorts aayala 30.11.2011
-*** FIN MODIFICACIÓN EMG 12/05/2009
-  PERFORM bdc_field       USING 'LFA1-STCD1'
-                              lt_t_1-cif.
-*  ini aayala agregar nif 3 19.12.2011
-  IF lt_t_1-stcd3 IS NOT INITIAL.
-    PERFORM bdc_field       USING 'LFA1-STCD3'
-                               lt_t_1-stcd3.
-  ENDIF.
-  IF lt_t_1-stkzn IS NOT INITIAL.
-    PERFORM bdc_field       USING 'LFA1-STKZN'
-                              lt_t_1-stkzn.
-  ENDIF.
-*  ini aayala agregar nif 3 19.12.2011
-*  PERFORM bdc_field       USING 'LFA1-STCD2'                "IA290709
-*                            lt_t_1-stcd2.                   "IA290709
-ENDFORM.                    " CREA_ACREEDOR_2
 *&---------------------------------------------------------------------*
 *&      Form  CREA_SOCIEDAD_3
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_sociedad_3 .
-*Marta: 25.06.2008
-*  IF lt_t_1-ktokk = 'ZRET'.
-*  IF lt_t_1-ktokk = 'ZTER'.
-*Marta: 25.06.2008
 
-*** INICIO MODIFICACIÓN EMG 21/10/2008
-*  SELECT * UP TO 1 ROWS FROM t059z WHERE land1 = lt_t_1-pais AND
-*                                   wt_withcd = lt_t_1-wt_withcd.
-*  ENDSELECT.
-*** FIN MODIFICACIÓN EMG 21/10/2008
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0220'.
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0610'.
-
-  PERFORM bdc_field       USING 'LFB1-QLAND'
-                             lt_t_1-pais_r.
-
-  PERFORM bdc_field       USING 'LFBW-WT_WITHCD(01)'
-                             lt_t_1-wt_withcd.
-
-  PERFORM bdc_field       USING 'LFBW-WITHT(01)'
-*** INICIO MODIFICACIÓN EMG 21/10/2008
-*                             t059z-witht.
-                             lt_t_1-witht.
-*** FIN MODIFICACIÓN EMG 21/10/2008
-
-  PERFORM bdc_field       USING 'LFBW-WT_SUBJCT(01)'
-                             'X'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-*  ENDIF.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              'UPDA'.
-
-ENDFORM.                    " CREA_SOCIEDAD_3
 *&---------------------------------------------------------------------*
 *&      Form  MODIF_SOCIEDAD_3
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM modif_sociedad_3 .
 
-*Marta: 25.06.2008
-*  IF lt_t_1-ktokk = 'ZRET'.
-  IF lt_t_1-bu_group = 'ZTER'.
-*Marta: 25.06.2008
-    SELECT * UP TO 1 ROWS FROM t059z WHERE land1 = lt_t_1-pais AND
-                                     wt_withcd = lt_t_1-wt_withcd.
-    ENDSELECT.
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0610'.
-
-    PERFORM bdc_field       USING 'LFB1-QLAND'
-                               lt_t_1-pais_r.
-
-    PERFORM bdc_field       USING 'LFBW-WT_WITHCD(01)'
-                               lt_t_1-wt_withcd.
-
-    PERFORM bdc_field       USING 'LFBW-WITHT(01)'
-                               t059z-witht.
-
-    PERFORM bdc_field       USING 'LFBW-WT_SUBJCT(01)'
-                               'X'.
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0610'.
-
-  ENDIF.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              'UPDA'.
-
-ENDFORM.                    " MODIF_SOCIEDAD_3
 *&---------------------------------------------------------------------*
 *&      Form  CALL_TRANSACTION
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM call_transaction   USING l_tran
-                             l_msgid
-                             l_msgnr
-                       CHANGING l_crea
-                             l_mess
-                             l_lifnr.
-  DATA:   messtab LIKE bdcmsgcoll OCCURS 0 WITH HEADER LINE.
-*       error session opened (' ' or 'X')
-  DATA le_t100 LIKE t100.
-
-  DATA lv_msgv1 LIKE messtab-msgv1.
-
-  DATA l_mstring(480).
-
-  DATA lv_ctumode LIKE ctu_params-dismode VALUE 'N'.
-  "A: show all dynpros
-  "E: show dynpro on error only
-  "N: do not display dynpro
-
-  REFRESH messtab.
-
-  DATA opt TYPE ctu_params.
-
-  opt-dismode = lv_ctumode.
-  opt-defsize = 'X'.
-*Ini JGOR 26.06.2018
-*  opt-upmode = 'S'.
-  opt-updmode = 'S'.
-  opt-racommit = 'X'.
-*Fin JGOR 26.06.2018
-*  CALL TRANSACTION l_tran USING bdcdata
-*                   MODE   lv_ctumode
-*                   UPDATE 'S'
-*                   MESSAGES INTO messtab.
-
-  CALL TRANSACTION l_tran USING bdcdata
-                 OPTIONS FROM opt
-                 MESSAGES INTO messtab.
-
-  READ TABLE messtab WITH KEY msgid = l_msgid
-                              msgnr = l_msgnr .
-* aayala 17.02.2012
-  IF sy-subrc NE 0.
-    READ TABLE messtab WITH KEY msgid = l_msgid
-                               msgnr = '170' .
-  ENDIF.
-* aayala 17.02.2012
-  IF sy-subrc = 0.
-
-    l_crea = 1.
-    l_lifnr = messtab-msgv1.
-    gv_lifnr = l_lifnr.
-    lt_t_1-partner = gv_lifnr.
-
-    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
-      EXPORTING
-        input  = l_lifnr
-      IMPORTING
-        output = l_lifnr.
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-    CLEAR: lt_log.
-    MOVE-CORRESPONDING messtab TO lt_log.
-    APPEND lt_log.
-*** FIN MODIFICACIÓN EMG 12/05/2009
-
-  ELSE.
-
-    LOOP AT messtab WHERE msgid = 'F2' AND msgnr = '035'. " Sin modif.
-
-    ENDLOOP.
-
-    IF sy-subrc = 0.
-
-      l_crea = 1.
-
-    ENDIF.
-
-    LOOP AT messtab WHERE msgtyp = 'E'.
-
-*      EXIT.
-
-    ENDLOOP.
-
-    SELECT SINGLE * FROM t100 INTO le_t100
-                              WHERE sprsl = messtab-msgspra
-                              AND   arbgb = messtab-msgid
-                              AND   msgnr = messtab-msgnr.
-    IF sy-subrc = 0.
-      l_mstring = le_t100-text.
-      IF l_mstring CS '&1'.
-        REPLACE '&1' WITH messtab-msgv1 INTO l_mstring.
-        REPLACE '&2' WITH messtab-msgv2 INTO l_mstring.
-        REPLACE '&3' WITH messtab-msgv3 INTO l_mstring.
-        REPLACE '&4' WITH messtab-msgv4 INTO l_mstring.
-      ELSE.
-        REPLACE '&' WITH messtab-msgv1 INTO l_mstring.
-        REPLACE '&' WITH messtab-msgv2 INTO l_mstring.
-        REPLACE '&' WITH messtab-msgv3 INTO l_mstring.
-        REPLACE '&' WITH messtab-msgv4 INTO l_mstring.
-      ENDIF.
-      CONDENSE l_mstring.
-    ELSE.
-      MOVE messtab TO l_mstring.
-    ENDIF.
-
-    MOVE l_mstring TO l_mess.
-
-  ENDIF.
-  CLEAR lt_log.
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-*  REFRESH lt_log.
-*** FIN MODIFICACIÓN EMG 12/05/2009
-  LOOP AT messtab WHERE msgtyp = 'E'.
-    MOVE-CORRESPONDING messtab TO lt_log.
-    APPEND lt_log.
-  ENDLOOP.
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-*  CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
-*    TABLES
-*      i_message_tab = lt_log.
-*** FIN MODIFICACIÓN EMG 12/05/2009
-ENDFORM.                    " CALL_TRANSACTION
 
 *&---------------------------------------------------------------------*
 *&      Form  CREA_ACREEDOR_BANK
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_bank .
 
-
-  IF lv_migr = 3.  " Migración 3
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-    PERFORM bdc_field       USING 'BDC_OKCODE'
-                                  '/00'.
-    PERFORM bdc_field       USING 'LFBK-BANKS(01)'
-                                lt_t_1-land1.
-
-    PERFORM bdc_field       USING 'LFBK-BANKL(01)'
-                                lt_t_1-bankk.
-
-    PERFORM bdc_field       USING 'LFBK-BANKN(01)'
-                                lt_t_1-bankn.
-
-    PERFORM bdc_field       USING 'LFBK-KOINH(01)'
-                                'TIT'.
-
-    PERFORM bdc_field       USING 'LFBK-BKONT(01)'
-                                lt_t_1-bkont.
-
-    IF NOT lt_t_1-iban01 IS INITIAL.
-
-      PERFORM bdc_field       USING 'BDC_OKCODE'
-                                 'IBAN'.
-
-      PERFORM bdc_dynpro      USING 'SAPLIBMA' '0100'.
-
-      PERFORM bdc_field       USING 'IBAN01'
-                                 lt_t_1-iban01.
-
-      PERFORM bdc_field       USING 'IBAN02'
-                                 lt_t_1-iban02.
-
-      PERFORM bdc_field       USING 'IBAN03'
-                                 lt_t_1-iban03.
-
-      PERFORM bdc_field       USING 'IBAN04'
-                                 lt_t_1-iban04.
-
-      PERFORM bdc_field       USING 'IBAN05'
-                                 lt_t_1-iban05.
-
-      PERFORM bdc_field       USING 'IBAN06'
-                                 lt_t_1-iban06.
-
-      PERFORM bdc_field       USING 'IBAN07'
-                                 lt_t_1-iban07.
-
-      PERFORM bdc_field       USING 'IBAN08'
-                                 lt_t_1-iban08.
-
-      PERFORM bdc_field       USING 'IBAN09'
-                                 lt_t_1-iban09.
-
-*   perform bdc_field       using 'TIBAN-VALID_FROM'
-*                              LT_T_1-VALID_FROM.
-
-    ENDIF.
-
-*   perform bdc_dynpro      using 'SAPMF02K' '0130'.
-
-    PERFORM bdc_field       USING 'BDC_OKCODE'
-                               'BANK'.
-
-    PERFORM bdc_dynpro      USING 'SAPLBANK' '0100'.
-
-    PERFORM bdc_field       USING 'BNKA-BANKA'
-                               'OBLIG'.
-
-    PERFORM bdc_field       USING 'BNKA-SWIFT'
-                               ''.
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-
-  ELSE.
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-
-    PERFORM bdc_field       USING 'BDC_OKCODE'
-                               'ENTR'.
-
-  ENDIF.
-ENDFORM.                    " CREA_ACREEDOR_BANK
 *&---------------------------------------------------------------------*
 *&      Form  CREA_SOCIEDAD
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_sociedad  CHANGING l_aprob
-                             l_mess.
 
-  DATA lv_lifnr TYPE lifnr.
-  DATA lv_quest TYPE string.
-  DATA lv_conf(1).
-
-  DATA lv_subrc TYPE i.
-
-  SELECT SINGLE * FROM lfb1 WHERE bukrs = lt_t_1-bukrs AND
-                                  lifnr = lt_t_1-partner.
-
-  lv_subrc = sy-subrc.
-  IF lv_subrc = 0 AND lv_migr IS INITIAL..
-
-*    MOVE text-017 TO lv_quest.
-*    REPLACE '&1' WITH lt_t_1-bukrs INTO lv_quest.
-*    REPLACE '&2' WITH lt_t_1-lifnr INTO lv_quest.
-*
-*    CALL FUNCTION 'POPUP_TO_CONFIRM'
-*      EXPORTING
-*        titlebar              = text-015
-*        text_question         = lv_quest
-*        default_button        = '1'
-*        display_cancel_button = ''
-*        start_column          = 25
-*        start_row             = 6
-*      IMPORTING
-*        answer                = lv_conf.
-*
-*    IF lv_conf = '2'.
-*      .
-** Proceso continua
-*      l_aprob = 1.
-*
-*    ELSE.
-
-    MOVE TEXT-018 TO lv_quest.
-    REPLACE '&1' WITH lt_t_1-bukrs INTO lv_quest.
-    REPLACE '&2' WITH lt_t_1-partner INTO lv_quest.
-    l_mess = lv_quest.
-    MESSAGE l_mess TYPE 'I'.
-*    ENDIF.
-
-    EXIT.
-
-  ENDIF.
-
-  IF lv_subrc = 0 AND NOT lv_migr IS INITIAL.
-
-    l_aprob = 1.
-    EXIT.
-
-  ENDIF.
-*ini seccion comentada porque no aplica para mexico rcd aayala 30.11.2011
-*  SELECT SINGLE * FROM lfb1 WHERE bukrs = '5000' AND
-*                                  lifnr = lt_t_1-lifnr.
-*
-*  lv_subrc = sy-subrc.
-*  IF lv_subrc <> 0.
-*    REFRESH bdcdata.
-*
-*    PERFORM crea_sociedad_5000.
-*
-**Marta: 26.06.2008
-**Que solo cree retenciones en la sociedad 5000, cuando hablemos sociedades del mismo pais de esta
-**o sea sociedades españolas
-*    DATA: va_land1 TYPE t001-land1.
-*
-*    SELECT SINGLE land1
-*             FROM t001
-*             INTO va_land1
-*            WHERE bukrs EQ lt_t_1-bukrs.
-*
-*    IF va_land1 EQ 'ES'.
-*
-*      PERFORM crea_sociedad_3.   "ZRET
-*
-*    ENDIF.
-**Marta: 26.06.2008
-*
-*    PERFORM call_transaction  USING 'FK01'
-*                                   'F2'
-*                                   '271'
-*                             CHANGING l_aprob
-*                                      l_mess
-*                                      lv_lifnr.
-*
-*  ENDIF.
-*ini seccion comentada porque no aplica para mexico rcd aayala 30.11.2011
-  REFRESH bdcdata.
-
-  PERFORM crea_sociedad_1.
-
-  PERFORM crea_sociedad_3.   "ZRET
-
-
-*  SELECT SINGLE stcd1
-*    FROM lfa1
-*    WHERE stcd1 = @lt_t_1-cif
-*    INTO @DATA(stcd1).
-
-*  IF sy-subrc IS INITIAL.
-  PERFORM call_transaction  USING 'FK01'
-                                 'F2'
-                                 '271'
-                           CHANGING l_aprob
-                                    l_mess
-                                    lv_lifnr.
-*  ENDIF.
-
-ENDFORM.                    " CREA_SOCIEDAD
 *&---------------------------------------------------------------------*
 *&      Form  MODIF_SOCIEDAD
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM modif_sociedad  CHANGING l_aprob
-                             l_mess.
 
-  DATA lv_lifnr TYPE lifnr.
-
-  REFRESH bdcdata.
-
-  PERFORM modif_sociedad_1 USING lt_t_1-partner.
-
-  PERFORM crea_sociedad_3.   "ZRET
-
-  PERFORM call_transaction  USING 'FK02'
-                                 'F2'
-                                 '271'
-                           CHANGING l_aprob
-                                    l_mess
-                                    lv_lifnr.
-
-ENDFORM.                    " MODIF_SOCIEDAD
 *&---------------------------------------------------------------------*
 *&      Form  CREA_SOCIEDAD_MOD
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_sociedad_mod  USING VALUE(l_bukrs)
-                    CHANGING l_aprob
-                             l_mess.
 
-  DATA lv_lifnr LIKE zfitprov-partner.
-
-  REFRESH bdcdata.
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0105'.
-
-
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                              lt_t_1-bukrs.
-
-  PERFORM bdc_field       USING 'RF02K-LIFNR'
-                              lt_t_1-partner.
-
-  PERFORM bdc_field       USING 'RF02K-REF_BUKRS'
-                              l_bukrs.
-
-  PERFORM bdc_field       USING 'RF02K-REF_LIFNR'
-                              lt_t_1-partner.
-
-*************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0210'.
-
-  IF lt_t_1-bu_group = 'ZTER'.
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0215'.
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0220'.
-
-    SELECT * UP TO 1 ROWS FROM t059z WHERE land1 = lt_t_1-pais AND
-                                    wt_withcd = lt_t_1-wt_withcd.
-    ENDSELECT.
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0610'.
-
-    PERFORM bdc_field       USING 'LFB1-QLAND'
-                              lt_t_1-pais_r.
-
-    PERFORM bdc_field       USING 'LFBW-WT_WITHCD(01)'
-                              lt_t_1-wt_withcd.
-
-    PERFORM bdc_field       USING 'LFBW-WITHT(01)'
-                              t059z-witht.
-
-    PERFORM bdc_field       USING 'LFBW-WT_SUBJCT(01)'
-                              'X'.
-
-  ENDIF.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              'UPDA'.
-
-  PERFORM call_transaction  USING 'FK01'
-                                 'F2'
-                                 '271'
-                           CHANGING l_aprob
-                                    l_mess
-                                    lv_lifnr.
-
-ENDFORM.                    " CREA_SOCIEDAD_MOD
 *&---------------------------------------------------------------------*
 *&      Form  CREA_ACREEDOR_3_
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_3_ .
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0380'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                                'ENTR'.
-  PERFORM bdc_field       USING 'KNVK-NAME1(01)'
-                              lt_t_1-dzsabe_k.
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0380'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              'ENTR'.
-
-ENDFORM.                    " CREA_ACREEDOR_3_
 *&---------------------------------------------------------------------*
 *&      Form  CREA_ACREEDOR_COMPRAS
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
 
-FORM crea_acreedor_compras .
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0310'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                                'ENTR'.
-  PERFORM bdc_field       USING 'LFM1-WAERS'
-                              lt_t_1-waers.
-
-  PERFORM bdc_field       USING 'LFM1-ZTERM'
-                              lt_t_1-zterm.
-
-  PERFORM bdc_field       USING 'LFM1-WEBRE'
-                              'X'.
-
-  PERFORM bdc_field       USING 'LFM1-BOLRE'
-                              'X'.
-
-  PERFORM bdc_field       USING 'LFM1-BOIND'
-                              'X'.
-
-  PERFORM bdc_field       USING 'LFM1-UMSAE'
-                              'X'.
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0320'.
-
-  PERFORM bdc_field       USING 'WYT3-PARVW(01)'
-                              'DP'."'PR'."'DP'. JGOR 20.07.2017
-
-  PERFORM bdc_field       USING 'WRF02K-GPARN(01)'
-                              'INTERNO'.
-
-  PERFORM bdc_field       USING 'WYT3-PARVW(02)'
-                              'PR'."'DP'."'PR'. JGOR 20.07.2017
-  PERFORM bdc_field       USING 'WRF02K-GPARN(02)'
-                              'INTERNO'.
-
-  PERFORM bdc_field       USING 'WYT3-PARVW(03)'
-                              'EF'.
-  PERFORM bdc_field       USING 'WRF02K-GPARN(03)'
-                              'INTERNO'.
-
-ENDFORM.                    " CREA_ACREEDOR_COMPRAS
 *&---------------------------------------------------------------------*
 *&      Form  CREA_SOCIEDAD_1
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crea_sociedad_1.
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0105'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                              lt_t_1-bukrs.
-
-  PERFORM bdc_field       USING 'RF02K-LIFNR'
-                              lt_t_1-partner.
-
-  PERFORM bdc_field       USING 'RF02K-KTOKK'
-                              lt_t_1-bu_group.
-*************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0210'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  PERFORM bdc_field       USING 'LFB1-AKONT'
-                              lt_t_1-akont.
-
-*  IF LT_T_1-KTOKK = 'ZTGR'.
-
-  PERFORM bdc_field       USING 'LFB1-FDGRV'
-                              lt_t_1-fdgrv.
-
-*  ENDIF.
-
-**************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0215'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-
-  PERFORM bdc_field USING 'LFB1-REPRF' 'X'."aayala 30.11.2011
-
-  PERFORM bdc_field       USING 'LFB1-ZTERM'
-                              lt_t_1-zterm.
-
-  PERFORM bdc_field       USING 'LFB1-ZWELS'
-                              lt_t_1-zwels.
-
-  IF NOT lt_t_1-bloqj IS INITIAL.
-
-    PERFORM bdc_field       USING 'LFB1-ZAHLS'
-                                  'J'.
-
-  ENDIF.
-
-ENDFORM.                    " CREA_SOCIEDAD_1
 *&---------------------------------------------------------------------*
 *&      Form  MODIF_SOCIEDAD_1
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM modif_sociedad_1 USING l_lifnr.
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0106'.
-
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                              lt_t_1-bukrs.
-
-  PERFORM bdc_field       USING 'RF02K-LIFNR'
-                              l_lifnr.
-
-  PERFORM bdc_field       USING 'RF02K-D0210'
-                              'X'.
-  PERFORM bdc_field       USING 'RF02K-D0215'
-                              'X'.
-  PERFORM bdc_field       USING 'RF02K-D0220'
-                              'X'.
-  PERFORM bdc_field       USING 'RF02K-D0610'
-                              'X'.
-
-*************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0210'.
-
-  IF NOT lt_t_1-akont IS INITIAL.
-    PERFORM bdc_field       USING 'LFB1-AKONT'
-                                lt_t_1-akont.
-  ENDIF.
-
-**************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0215'.
-  PERFORM bdc_field USING 'LFB1-REPRF' 'X'."aayala 30.11.2011
-  IF NOT lt_t_1-zterm IS INITIAL.
-    PERFORM bdc_field       USING 'LFB1-ZTERM'
-                              lt_t_1-zterm.
-  ENDIF.
-
-  IF NOT lt_t_1-zwels IS INITIAL.
-    PERFORM bdc_field       USING 'LFB1-ZWELS'
-                              lt_t_1-zwels.
-  ENDIF.
-
-ENDFORM.                    " MODIF_SOCIEDAD_1
 *&---------------------------------------------------------------------*
 *&      Form  TR_BLOQ_SOC
 *&---------------------------------------------------------------------*
@@ -3804,12 +2887,6 @@ FORM tr_aprob_conf_modif .
   DATA: lv_index TYPE i.
   DATA: lv_aprob TYPE i.
 
-  DATA: BEGIN OF lt_bukrs OCCURS 0,
-          bukrs LIKE zfitprov-bukrs,
-        END OF lt_bukrs.
-
-  DATA lv_bukrs LIKE zfitprov-bukrs.
-
   PERFORM ini_cod_int.
 
 * Solicitudes seleccionados
@@ -3823,9 +2900,20 @@ FORM tr_aprob_conf_modif .
     SELECT * UP TO 1 ROWS FROM zfitprovnav WHERE zzprovenl = lt_t_1-zzprovenl.
     ENDSELECT.
 
+    IF sy-subrc <> 0 OR zfitprovnav-partner IS INITIAL.
+
+      lt_t_1-error = |NO existe proveedor asociado a { lt_t_1-zzprovenl } en ZFITPROVNAV|.
+
+      MODIFY lt_t_1 INDEX lv_index TRANSPORTING error.
+
+      PERFORM tr_grabar_sol USING lv_index.
+
+      CONTINUE.
+
+    ENDIF.
+
     lt_t_1-partner = zfitprovnav-partner.
-    PERFORM migr_soc_modif USING lv_index
-                          CHANGING lv_aprob.
+    PERFORM migr_soc_modif USING lv_index CHANGING lv_aprob.
 
     IF NOT lt_t_1-bloq IS INITIAL AND lv_aprob IS INITIAL.
 * Bloqueo Sociedad
@@ -3854,123 +2942,7 @@ ENDFORM.                    " TR_APROB_CONF_MODIF
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_tr_act_calle2 USING l_lifnr.
 
-
-  DATA: lv_addr_sel  LIKE  addr1_sel,
-        lv_sadr      LIKE  sadr,
-        lv_addr_data LIKE  addr1_data.
-
-  DATA: lv_returncode       LIKE  szad_field-returncode,
-        lv_data_has_changed,
-        lt_error_table      LIKE addr_error OCCURS 0.
-
-  DATA: BEGIN OF lt_smtp OCCURS 0.
-          INCLUDE STRUCTURE adsmtp.
-  DATA: END OF lt_smtp.
-
-  SELECT SINGLE * FROM lfa1 WHERE lifnr = l_lifnr.
-
-  lv_addr_sel-addrnumber = lfa1-adrnr.
-
-  CALL FUNCTION 'ADDR_GET'
-    EXPORTING
-      address_selection = lv_addr_sel
-    IMPORTING
-      sadr              = lv_sadr
-    EXCEPTIONS
-      parameter_error   = 1
-      address_not_exist = 2
-      version_not_exist = 3
-      internal_error    = 4
-      OTHERS            = 5.
-  IF sy-subrc <> 0.
-    MESSAGE i209(zfi01) WITH l_lifnr.
-    EXIT.
-  ENDIF.
-
-  lv_addr_data-name1 = lv_sadr-name1.
-  lv_addr_data-name2 = lv_sadr-name2.
-  lv_addr_data-city1 = lv_sadr-ort01.
-  lv_addr_data-post_code1 = lv_sadr-pstlz.
-  lv_addr_data-country = lv_sadr-land1.
-  lv_addr_data-langu = lv_sadr-spras.
-  lv_addr_data-region = lv_sadr-regio.
-  lv_addr_data-street = lt_t_1-direc.
-  lv_addr_data-sort1 = lv_sadr-sortl.
-
-  lv_addr_data-str_suppl1 = lt_t_1-direc_2.
-
-  lv_addr_data-date_from = '10101'.
-  lv_addr_data-date_to = '99991231'.
-  lv_addr_data-time_zone = 'CET'.
-  lv_addr_data-langu_crea = lv_sadr-spras.
-
-  CALL FUNCTION 'ADDR_UPDATE'
-    EXPORTING
-      address_data      = lv_addr_data
-      address_number    = lfa1-adrnr
-    IMPORTING
-      address_data      = lv_addr_data
-      returncode        = lv_returncode
-      data_has_changed  = lv_data_has_changed
-    TABLES
-      error_table       = lt_error_table
-    EXCEPTIONS
-      address_not_exist = 1
-      parameter_error   = 2
-      version_not_exist = 3
-      internal_error    = 4
-      OTHERS            = 5.
-
-  IF sy-subrc <> 0.
-    MESSAGE i209(zfi01) WITH l_lifnr.
-    EXIT.
-  ENDIF.
-
-
-  lt_smtp-smtp_addr = lt_t_1-smtp.
-  lt_smtp-updateflag = 'I'.
-  APPEND lt_smtp.
-
-  REFRESH lt_error_table.
-
-  CALL FUNCTION 'ADDR_COMM_MAINTAIN'
-    EXPORTING
-      address_number     = lfa1-adrnr
-      table_type         = 'ADSMTP'
-      iv_time_dependence = 'X'
-    IMPORTING
-      returncode         = lv_returncode
-    TABLES
-      comm_table         = lt_smtp
-      error_table        = lt_error_table
-    EXCEPTIONS
-      parameter_error    = 1
-      address_not_exist  = 2
-      internal_error     = 3
-      OTHERS             = 4.
-  IF sy-subrc <> 0.
-    MESSAGE i209(zfi01) WITH l_lifnr.
-    EXIT.
-  ENDIF.
-
-  CALL FUNCTION 'ADDR_MEMORY_SAVE'
-    EXPORTING
-      execute_in_update_task = ' '
-    EXCEPTIONS
-      address_number_missing = 1
-      person_number_missing  = 2
-      internal_error         = 3
-      database_error         = 4
-      reference_missing      = 5
-      OTHERS                 = 6.
-  IF sy-subrc <> 0.
-    MESSAGE i209(zfi01) WITH l_lifnr.
-    EXIT.
-  ENDIF.
-
-ENDFORM.                    " TR_TR_ACT_CALLE2
 *&---------------------------------------------------------------------*
 *&      Form  TEXTO_ERROR
 *&---------------------------------------------------------------------*
@@ -4087,12 +3059,12 @@ ENDFORM.                    " VERIF_RECH
 FORM llamar_dynpro .
   CLEAR: r_bukrs_aut, r_bukrs_naut.
   REFRESH: r_bukrs_aut, r_bukrs_naut.
-  IF sy-uname <> 'DLOPEZPEREZ'. "DELETE
+  IF sy-uname <> 'DLOPEZPEREZ'.
     SELECT * FROM t001  WHERE bukrs IN so_bukrs.
 * valida permiso para la sociedad seleccionada
       AUTHORITY-CHECK OBJECT 'ZAUT_BUKRS'
-          ID 'BUKRS' FIELD t001-bukrs
-          ID 'ACTVT' FIELD '03'.
+      ID 'BUKRS' FIELD t001-bukrs
+      ID 'ACTVT' FIELD '03'.
       IF sy-subrc <> 0.
         r_bukrs_naut-sign = 'I'.
         r_bukrs_naut-option = 'EQ'.
@@ -4248,51 +3220,7 @@ ENDMODULE.                 " OKCODE_ENTER  INPUT
 *  -->  p1        text
 *  <--  p2        text
 *----------------------------------------------------------------------*
-FORM crea_sociedad_5000 .
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0105'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
 
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                              '5000'.
-
-  PERFORM bdc_field       USING 'RF02K-LIFNR'
-                              lt_t_1-partner.
-
-  PERFORM bdc_field       USING 'RF02K-KTOKK'
-                              lt_t_1-bu_group.
-*************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0210'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  PERFORM bdc_field       USING 'LFB1-AKONT'
-                              lt_t_1-akont.
-
-*  IF LT_T_1-KTOKK = 'ZTGR'.
-
-  PERFORM bdc_field       USING 'LFB1-FDGRV'
-                              lt_t_1-fdgrv.
-
-*  ENDIF.
-
-**************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0215'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  PERFORM bdc_field       USING 'LFB1-ZTERM'
-                              lt_t_1-zterm.
-
-  PERFORM bdc_field       USING 'LFB1-ZWELS'
-                              lt_t_1-zwels.
-  PERFORM bdc_field USING 'LFB1-REPRF' 'X'."aayala 30.11.2011
-  IF NOT lt_t_1-bloqj IS INITIAL.
-
-    PERFORM bdc_field       USING 'LFB1-ZAHLS'
-                                  'J'.
-
-  ENDIF.
-
-ENDFORM.                    " crea_sociedad_5000
 *&---------------------------------------------------------------------*
 *&      Form  crea_acreedor_8300
 *&---------------------------------------------------------------------*
@@ -4302,34 +3230,7 @@ ENDFORM.                    " crea_sociedad_5000
 *      <--P_LV_MESS  text
 *      <--P_LV_LIFNR  text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_8300  CHANGING l_crea
-                                  l_mess
-                                  l_lifnr.
 
-  DATA lv_mes(3) VALUE '170'.
-
-  REFRESH bdcdata.
-
-  PERFORM crea_acreedor_8300_1.  "DATOS GENERALES
-
-  PERFORM crea_acreedor_8300_2.  "CIF
-
-  PERFORM crea_acreedor_8300_bank.    "DATOS BANCO
-
-  PERFORM crea_acreedor_8300_3.  "CONTACTO
-
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              'UPDA'.
-
-  PERFORM call_transaction  USING 'FK01'
-                                 'F2'
-                                  lv_mes
-                           CHANGING l_crea
-                                    l_mess
-                                    l_lifnr.
-
-ENDFORM.                    " crea_acreedor_8300
 *&---------------------------------------------------------------------*
 *&      Form  crea_acreedor_8300_1
 *&---------------------------------------------------------------------*
@@ -4338,49 +3239,7 @@ ENDFORM.                    " crea_acreedor_8300
 *  -->  p1        text
 *  <--  p2        text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_8300_1 .
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0105'.
-
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                                lt_t_1-bukrs.
-  PERFORM bdc_field       USING 'RF02K-KTOKK'
-                                lt_t_1-bu_group.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                                '/00'.
-
-
-* Datos generales
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0110'.
-
-  PERFORM bdc_field       USING 'LFA1-NAME1'
-                              lt_t_1-name1(35).
-  PERFORM bdc_field       USING 'LFA1-NAME2'
-                              lt_t_1-name2(35).
-  PERFORM bdc_field       USING 'LFA1-SORTL'
-                              lt_t_1-busq.
-  PERFORM bdc_field       USING 'LFA1-STRAS'
-                              lt_t_1-direc(35).
-  PERFORM bdc_field       USING 'LFA1-ORT01'
-                              lt_t_1-poblac.
-  PERFORM bdc_field       USING 'LFA1_PSTLZ'
-                              lt_t_1-cod_post.
-  PERFORM bdc_field       USING 'LFA1-REGIO'
-                              lt_t_1-region.
-  PERFORM bdc_field       USING 'LFA1-LAND1'
-                              lt_t_1-pais.
-  PERFORM bdc_field       USING 'LFA1-SPRAS'
-                              lt_t_1-spras.
-  PERFORM bdc_field       USING 'LFA1-TELF1'
-                              lt_t_1-tel(27).
-  PERFORM bdc_field       USING 'LFA1-TELX1'
-                              lt_t_1-fax(27).
-  PERFORM bdc_field       USING 'LFA1-LFURL'
-                              lt_t_1-smtp.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                               '/00'.
-
-ENDFORM.                    " crea_acreedor_8300_1
 *&---------------------------------------------------------------------*
 *&      Form  crea_acreedor_8300_2
 *&---------------------------------------------------------------------*
@@ -4389,29 +3248,7 @@ ENDFORM.                    " crea_acreedor_8300_1
 *  -->  p1        text
 *  <--  p2        text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_8300_2 .
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0120'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  IF lt_t_1-bu_group = '2060'.
-
-    PERFORM bdc_field       USING 'LFA1-VBUND'
-                                lt_t_1-rcomp.
-
-  ENDIF.
-  PERFORM bdc_field       USING 'LFA1-KONZS'
-                              lt_t_1-c_fisc_mx.
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-*  IF lt_t_1-ktokk EQ 'ZTGR' OR
-*     lt_t_1-ktokk EQ 'ZTER'.se elimina para rcd resorts aayala 30.11.2011
-  PERFORM bdc_field       USING 'LFA1-BRSCH' lt_t_1-brsch.
-*  ENDIF.se elimina para rcd resorts aayala 30.11.2011
-*** FIN MODIFICACIÓN EMG 12/05/2009
-  PERFORM bdc_field       USING 'LFA1-STCD1'
-                              lt_t_1-cif.
-
-ENDFORM.                    " crea_acreedor_8300_2
 *&---------------------------------------------------------------------*
 *&      Form  crea_acreedor_8300_bank
 *&---------------------------------------------------------------------*
@@ -4420,91 +3257,7 @@ ENDFORM.                    " crea_acreedor_8300_2
 *  -->  p1        text
 *  <--  p2        text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_8300_bank .
 
-  IF lv_migr = 3.  " Migración 3
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-    PERFORM bdc_field       USING 'BDC_OKCODE'
-                                  '/00'.
-    PERFORM bdc_field       USING 'LFBK-BANKS(01)'
-                                lt_t_1-land1.
-
-    PERFORM bdc_field       USING 'LFBK-BANKL(01)'
-                                lt_t_1-bankk.
-
-    PERFORM bdc_field       USING 'LFBK-BANKN(01)'
-                                lt_t_1-bankn.
-
-    PERFORM bdc_field       USING 'LFBK-KOINH(01)'
-                                'TIT'.
-
-    PERFORM bdc_field       USING 'LFBK-BKONT(01)'
-                                lt_t_1-bkont.
-
-    IF NOT lt_t_1-iban01 IS INITIAL.
-
-      PERFORM bdc_field       USING 'BDC_OKCODE'
-                                 'IBAN'.
-
-      PERFORM bdc_dynpro      USING 'SAPLIBMA' '0100'.
-
-      PERFORM bdc_field       USING 'IBAN01'
-                                 lt_t_1-iban01.
-
-      PERFORM bdc_field       USING 'IBAN02'
-                                 lt_t_1-iban02.
-
-      PERFORM bdc_field       USING 'IBAN03'
-                                 lt_t_1-iban03.
-
-      PERFORM bdc_field       USING 'IBAN04'
-                                 lt_t_1-iban04.
-
-      PERFORM bdc_field       USING 'IBAN05'
-                                 lt_t_1-iban05.
-
-      PERFORM bdc_field       USING 'IBAN06'
-                                 lt_t_1-iban06.
-
-      PERFORM bdc_field       USING 'IBAN07'
-                                 lt_t_1-iban07.
-
-      PERFORM bdc_field       USING 'IBAN08'
-                                 lt_t_1-iban08.
-
-      PERFORM bdc_field       USING 'IBAN09'
-                                 lt_t_1-iban09.
-
-*   perform bdc_field       using 'TIBAN-VALID_FROM'
-*                              LT_T_1-VALID_FROM.
-
-    ENDIF.
-
-*   perform bdc_dynpro      using 'SAPMF02K' '0130'.
-
-    PERFORM bdc_field       USING 'BDC_OKCODE'
-                               'BANK'.
-
-    PERFORM bdc_dynpro      USING 'SAPLBANK' '0100'.
-
-    PERFORM bdc_field       USING 'BNKA-BANKA'
-                               'OBLIG'.
-
-    PERFORM bdc_field       USING 'BNKA-SWIFT'
-                               ''.
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-
-  ELSE.
-
-    PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-
-    PERFORM bdc_field       USING 'BDC_OKCODE'
-                               'ENTR'.
-
-  ENDIF.
-
-ENDFORM.                    " crea_acreedor_8300_bank
 *&---------------------------------------------------------------------*
 *&      Form  crea_acreedor_8300_3
 *&---------------------------------------------------------------------*
@@ -4513,19 +3266,7 @@ ENDFORM.                    " crea_acreedor_8300_bank
 *  -->  p1        text
 *  <--  p2        text
 *----------------------------------------------------------------------*
-FORM crea_acreedor_8300_3 .
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0380'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                                'ENTR'.
-  PERFORM bdc_field       USING 'KNVK-NAME1(01)'
-                              lt_t_1-dzsabe_k.
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0380'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              'ENTR'.
-
-ENDFORM.                    " crea_acreedor_8300_3
 *&---------------------------------------------------------------------*
 *&      Form  crea_sociedad_8300
 *&---------------------------------------------------------------------*
@@ -4534,94 +3275,7 @@ ENDFORM.                    " crea_acreedor_8300_3
 *      <--P_L_APROB  text
 *      <--P_LV_MESS  text
 *----------------------------------------------------------------------*
-FORM crea_sociedad_8300  CHANGING l_aprob
-                                  l_mess.
 
-
-  DATA lv_lifnr TYPE lifnr.
-
-*Marta Vall: 16.10.2008 - inico modificación - Crear todas las sociedad
-*grupo de sincronización
-
-  DATA:
-    BEGIN OF ls_bukrs,
-      bukrs LIKE zfitprov-bukrs,
-    END OF ls_bukrs.
-
-  DATA: lt_bukrs LIKE ls_bukrs OCCURS 0 WITH HEADER LINE.
-
-*Marta Vall: 16.10.2008 - fin modifiación
-
-  REFRESH lt_bukrs.
-
-  PERFORM acces_gr_sync TABLES lt_bukrs.
-
-  REFRESH bdcdata.
-
-  PERFORM crea_sociedad_1_8300.
-
-  PERFORM crea_sociedad_3.   "ZRET
-
-  PERFORM call_transaction  USING 'FK01'
-                                 'F2'
-                                 '271'
-                           CHANGING l_aprob
-                                    l_mess
-                                    lv_lifnr.
-
-  PERFORM actualiza_mail USING lv_lifnr lt_t_1-smtp. "ALML
-
-*Marta: 27.11.2008 - inicio modificación
-*  PERFORM tr_tr_act_calle2 USING lv_lifnr."aayala
-*Marta: 27.11.2008 - fin modifiación
-
-
-****Marta Vall: 16.10.2008 - inicio modficación
-***  IF lt_t_1-pais EQ 'GB'.
-***
-***
-***    LOOP AT lt_bukrs.
-***      IF lt_bukrs-bukrs NE lt_t_1-bukrs.
-***
-***        REFRESH bdcdata.
-***
-***        PERFORM crear_sociedad_sincronizacion USING lv_lifnr lt_bukrs-bukrs.
-***
-***        PERFORM crea_sociedad_3.   "ZRET
-***
-***        PERFORM call_transaction  USING 'FK01'
-***                                       'F2'
-***                                       '271'
-***                                 CHANGING l_aprob
-***                                          l_mess
-***                                          lv_lifnr.
-***      ENDIF.
-***
-***
-***    ENDLOOP.
-***
-****Crear el mismo proveedor para la sociedad 5000, maestra
-***  ENDIF.
-****Marta Vall: 16.10.2008 - fin modificación
-***
-
-*ini se comento bloque ya que no es necesario crearlo en la sociedad 5000 aayala
-*  REFRESH bdcdata.
-*
-**Marta Vall: 15.10.2008 - inicio modificación - usar el proveedor que ya se ha creado
-*  PERFORM crear_sociedad_1_5000 USING lv_lifnr.
-**Marta Vall: 15.10.2008 - fin modificación
-*
-*  PERFORM crea_sociedad_3.
-*
-*  PERFORM call_transaction  USING 'FK01'
-*                                 'F2'
-*                                 '271'
-*                           CHANGING l_aprob
-*                                    l_mess
-*                                    lv_lifnr.
-*fin se comento bloque ya que no es necesario crearlo en la sociedad 5000 aayala
-ENDFORM.                    " crea_sociedad_8300
 *&---------------------------------------------------------------------*
 *&      Form  crea_sociedad_1_8300
 *&---------------------------------------------------------------------*
@@ -4630,123 +3284,7 @@ ENDFORM.                    " crea_sociedad_8300
 *  -->  p1        text
 *  <--  p2        text
 *----------------------------------------------------------------------*
-FORM crea_sociedad_1_8300 .
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0105'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
 
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                              lt_t_1-bukrs.
-
-*  PERFORM bdc_field       USING 'RF02K-LIFNR'
-*                              lt_t_1-lifnr.
-
-  PERFORM bdc_field       USING 'RF02K-KTOKK'
-                              lt_t_1-bu_group.
-*************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0110'.
-
-  PERFORM bdc_field       USING 'LFA1-NAME1'
-*** INICIO MODIFICACIÓN EMG 10/12/2008
-*                              lt_t_1-name1.
-                              lt_t_1-name1(35).
-*** FIN MODIFICACIÓN EMG 10/12/2008
-  PERFORM bdc_field       USING 'LFA1-SORTL'
-                              lt_t_1-busq.
-  PERFORM bdc_field       USING 'LFA1-NAME2'
-                              lt_t_1-name2.
-  PERFORM bdc_field       USING 'LFA1-STRAS'
-                              lt_t_1-direc.
-  PERFORM bdc_field       USING 'LFA1-ORT01'
-                              lt_t_1-poblac.
-  PERFORM bdc_field       USING 'LFA1-PSTLZ'
-                              lt_t_1-cod_post.
-  PERFORM bdc_field       USING 'LFA1-LAND1'
-                              lt_t_1-pais.
-  PERFORM bdc_field       USING 'LFA1-REGIO'
-                              lt_t_1-region.
-  PERFORM bdc_field       USING 'LFA1-SPRAS'
-                              lt_t_1-spras.
-  PERFORM bdc_field       USING 'LFA1-TELF1'
-                              lt_t_1-tel.
-  PERFORM bdc_field       USING 'LFA1-TELFX'
-                              lt_t_1-fax.
-  PERFORM bdc_field       USING 'LFA1-LFURL'
-                              lt_t_1-smtp.
-
-*Marta 27.11.2008 / inicio modificacion
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                           '/00'.
-*Marta 27.11.2008 / fin modifiaci'on
-
-************************************************************
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0120'.
-*  aayala condicionar para dominicana 19 de enero de 2012
-  IF  lt_t_1-bu_group EQ '2060'.
-    PERFORM bdc_field       USING 'LFA1-VBUND' lt_t_1-rcomp. "IA080509
-  ENDIF.
-  PERFORM bdc_field       USING 'LFA1-STCD1' lt_t_1-cif.
-
-  PERFORM bdc_field       USING 'LFA1-KONZS'
-                              lt_t_1-c_fisc_mx.
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-*  IF lt_t_1-ktokk EQ 'ZTGR' ORse elimina para rcd resorts aayala 30.11.2011
-*     lt_t_1-ktokk EQ 'ZTER'.
-  PERFORM bdc_field     USING 'LFA1-BRSCH' lt_t_1-brsch.
-*  ENDIF.se elimina para rcd resorts aayala 30.11.2011
-*** FIN MODIFICACIÓN EMG 12/05/2009
-  PERFORM bdc_field       USING 'BDC_OKCODE' '/00'.
-************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-  PERFORM bdc_field       USING 'LFBK-BANKS(01)'
-                              lt_t_1-land1.
-  PERFORM bdc_field       USING 'LFBK-BANKL(01)'
-                              lt_t_1-bankk.
-  PERFORM bdc_field       USING 'LFBK-BANKN(01)'
-                              lt_t_1-bankn.
-  PERFORM bdc_field       USING 'LFBK-BKONT(01)'
-                              lt_t_1-bkont.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '=ENTR'.
-
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '=ENTR'.
-*falta persona de contacto
-  PERFORM crea_acreedor_8300_3 .
-*************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0210'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  PERFORM bdc_field       USING 'LFB1-AKONT'
-                              lt_t_1-akont.
-
-*  IF LT_T_1-KTOKK = 'ZTGR'.
-
-  PERFORM bdc_field       USING 'LFB1-FDGRV'
-                              lt_t_1-fdgrv.
-
-*  ENDIF.
-
-**************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0215'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  PERFORM bdc_field       USING 'LFB1-ZTERM'
-                              lt_t_1-zterm.
-
-  PERFORM bdc_field       USING 'LFB1-ZWELS'
-                              lt_t_1-zwels.
-  PERFORM bdc_field USING 'LFB1-REPRF' 'X'."aayala 30.11.2011
-  IF NOT lt_t_1-bloqj IS INITIAL.
-
-    PERFORM bdc_field       USING 'LFB1-ZAHLS'
-                                  'J'.
-
-  ENDIF.
-
-ENDFORM.                    " crea_sociedad_1_8300
 *&---------------------------------------------------------------------*
 *&      Form  crear_sociedad_1_5000
 *&---------------------------------------------------------------------*
@@ -4756,111 +3294,7 @@ ENDFORM.                    " crea_sociedad_1_8300
 *  -->  p1        text
 *  <--  p2        text
 *----------------------------------------------------------------------*
-FORM crear_sociedad_1_5000 USING l_lifnr.
 
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0105'.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                                '/00'.
-
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                                '5000'.
-
-  PERFORM bdc_field       USING 'RF02K-LIFNR'
-                                l_lifnr.
-*                              lt_t_1-lifnr.
-
-  PERFORM bdc_field       USING 'RF02K-KTOKK'
-                                lt_t_1-bu_group.
-
-*Marta Vall: 15.10.2008 - inicio modificación
-*Replica del primer proveedor creado
-
-***************************************************************
-**  PERFORM bdc_dynpro      USING 'SAPMF02K' '0110'.
-**
-**  PERFORM bdc_field       USING 'LFA1-NAME1'
-**                              lt_t_1-name1.
-**  PERFORM bdc_field       USING 'LFA1-SORTL'
-**                              lt_t_1-busq.
-**  PERFORM bdc_field       USING 'LFA1-NAME2'
-**                              lt_t_1-name2.
-**  PERFORM bdc_field       USING 'LFA1-STRAS'
-**                              lt_t_1-direc.
-**  PERFORM bdc_field       USING 'LFA1-ORT01'
-**                              lt_t_1-poblac.
-**  PERFORM bdc_field       USING 'LFA1-PSTLZ'
-**                              lt_t_1-cod_post.
-**  PERFORM bdc_field       USING 'LFA1-LAND1'
-**                              lt_t_1-pais.
-**  PERFORM bdc_field       USING 'LFA1-REGIO'
-**                              lt_t_1-region.
-**  PERFORM bdc_field       USING 'LFA1-SPRAS'
-**                              lt_t_1-spras.
-**  PERFORM bdc_field       USING 'LFA1-TELF1'
-**                              lt_t_1-tel.
-**  PERFORM bdc_field       USING 'LFA1-TELFX'
-**                              lt_t_1-fax.
-**  PERFORM bdc_field       USING 'LFA1-LFURL'
-**                              lt_t_1-smtp.
-***************************************************************
-**
-**  PERFORM bdc_dynpro      USING 'SAPMF02K' '0120'.
-**  PERFORM bdc_field       USING 'LFA1-STCD1'
-**                              lt_t_1-cif.
-**  PERFORM bdc_field       USING 'BDC_OKCODE'
-**                              '/00'.
-***************************************************************
-**  PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-**  PERFORM bdc_field       USING 'LFBK-BANKS(01)'
-**                              lt_t_1-land1.
-**  PERFORM bdc_field       USING 'LFBK-BANKL(01)'
-**                              lt_t_1-bankk.
-**  PERFORM bdc_field       USING 'LFBK-BANKN(01)'
-**                              lt_t_1-bankn.
-**  PERFORM bdc_field       USING 'LFBK-BKONT(01)'
-**                              lt_t_1-bkont.
-**  PERFORM bdc_field       USING 'BDC_OKCODE'
-**                              '=ENTR'.
-**
-**  PERFORM bdc_dynpro      USING 'SAPMF02K' '0130'.
-**  PERFORM bdc_field       USING 'BDC_OKCODE'
-**                              '=ENTR'.
-**
-***************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0210'.
-
-  PERFORM bdc_field       USING 'LFB1-AKONT'
-                              lt_t_1-akont.
-
-*  IF LT_T_1-KTOKK = 'ZTGR'.
-
-  PERFORM bdc_field       USING 'LFB1-FDGRV'
-                              lt_t_1-fdgrv.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-*  ENDIF.
-
-****************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0215'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  PERFORM bdc_field       USING 'LFB1-ZTERM'
-                              lt_t_1-zterm.
-
-  PERFORM bdc_field       USING 'LFB1-ZWELS'
-                              lt_t_1-zwels.
-  PERFORM bdc_field USING 'LFB1-REPRF' 'X'."aayala 30.11.2011
-  IF NOT lt_t_1-bloqj IS INITIAL.
-
-    PERFORM bdc_field       USING 'LFB1-ZAHLS'
-                                  'J'.
-
-  ENDIF.
-
-*Marta Vall: 15.10.2008 - fin modificación
-ENDFORM.                    " crear_sociedad_1_5000
 *&---------------------------------------------------------------------*
 *&      Form  CREAR_SOCIEDAD_SINCRONIZACION
 *&---------------------------------------------------------------------*
@@ -4869,182 +3303,25 @@ ENDFORM.                    " crear_sociedad_1_5000
 *----------------------------------------------------------------------*
 *      -->P_LV_LIFNR  text
 *----------------------------------------------------------------------*
-FORM crear_sociedad_sincronizacion  USING    l_lifnr l_bukrs.
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0105'.
 
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                                '/00'.
-
-  PERFORM bdc_field       USING 'RF02K-BUKRS'
-                                l_bukrs.
-
-  PERFORM bdc_field       USING 'RF02K-LIFNR'
-                                l_lifnr.
-*
-  PERFORM bdc_field       USING 'RF02K-KTOKK'
-                                lt_t_1-bu_group.
-
-
-***************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0210'.
-
-  PERFORM bdc_field       USING 'LFB1-AKONT'
-                              lt_t_1-akont.
-
-
-  PERFORM bdc_field       USING 'LFB1-FDGRV'
-                              lt_t_1-fdgrv.
-
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-
-****************************************************************
-  PERFORM bdc_dynpro      USING 'SAPMF02K' '0215'.
-  PERFORM bdc_field       USING 'BDC_OKCODE'
-                              '/00'.
-  PERFORM bdc_field       USING 'LFB1-ZTERM'
-                              lt_t_1-zterm.
-
-  PERFORM bdc_field       USING 'LFB1-ZWELS'
-                              lt_t_1-zwels.
-  PERFORM bdc_field USING 'LFB1-REPRF' 'X'."aayala 30.11.2011
-  IF NOT lt_t_1-bloqj IS INITIAL.
-
-    PERFORM bdc_field       USING 'LFB1-ZAHLS'
-                                  'J'.
-
-  ENDIF.
-ENDFORM.                    " CREAR_SOCIEDAD_SINCRONIZACION
 *&---------------------------------------------------------------------*
 *&      Form  ACTUALIZA_MAIL
 *&---------------------------------------------------------------------*
 *       Actualiza mail
 *----------------------------------------------------------------------*
-FORM actualiza_mail  USING p_lifnr
-                           p_smtp.
 
-  DATA: lt_smtp  TYPE STANDARD TABLE OF adsmtp WITH HEADER LINE,
-        lv_adrnr TYPE lfa1-adrnr.
-
-*Tiempo de espera para encontrar en tablas el acreedor
-  WAIT UP TO 3 SECONDS.
-
-  SELECT SINGLE adrnr
-    INTO lv_adrnr
-    FROM lfa1
-    WHERE lifnr EQ p_lifnr.
-
-  IF sy-subrc EQ 0.
-
-    PERFORM addr_comm_get TABLES lt_smtp
-                          USING lv_adrnr
-                                'ADSMTP'
-                                p_smtp.
-
-    READ TABLE lt_smtp WITH KEY flgdefault = 'X'.
-    IF sy-subrc EQ 0.
-*     actualizar
-      IF p_smtp NE lt_smtp-smtp_addr.
-        MOVE p_smtp TO lt_smtp-smtp_addr.
-        lt_smtp-updateflag = 'U'.  "update
-        MODIFY lt_smtp INDEX sy-tabix TRANSPORTING smtp_addr updateflag.
-      ELSE.
-        EXIT.
-      ENDIF.
-    ELSE.
-*     insertar
-      IF p_smtp IS INITIAL.
-        EXIT.
-      ELSE.
-        MOVE: 'X' TO lt_smtp-flgdefault,
-              'X' TO lt_smtp-home_flag,
-              p_smtp TO lt_smtp-smtp_addr,
-              'I' TO lt_smtp-updateflag. "insert
-        APPEND lt_smtp.
-      ENDIF.
-    ENDIF.
-
-
-    PERFORM addr_comm_maintain TABLES lt_smtp
-                               USING lv_adrnr
-                                     'ADSMTP'.
-  ENDIF.
-
-ENDFORM.                    " ACTUALIZA_MAIL
 *&---------------------------------------------------------------------*
 *&      Form  ADDR_COMM_GET
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM addr_comm_get  TABLES   p_comm_table
-                    USING    p_adrnr TYPE lfa1-adrnr
-                             p_table_name TYPE szad_field-table_type
-                             p_smtp TYPE adr6-smtp_addr.
 
-  FIELD-SYMBOLS <fs_mail> TYPE adsmtp.
-
-  DATA: ls_commtable TYPE adsmtp.
-
-  CALL FUNCTION 'ADDR_COMM_GET'
-    EXPORTING
-      address_number    = p_adrnr
-      table_type        = p_table_name
-    TABLES
-      comm_table        = p_comm_table
-    EXCEPTIONS
-      parameter_error   = 1
-      address_not_exist = 2
-      internal_error    = 3
-      OTHERS            = 4.
-
-ENDFORM.                    " ADDR_COMM_GET
 *&---------------------------------------------------------------------*
 *&      Form  addr_comm_maintain
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM addr_comm_maintain  TABLES p_comm_table TYPE STANDARD TABLE
-                         USING  p_adrnr TYPE lfa1-adrnr
-                                p_table_name TYPE szad_field-table_type.
 
-  DATA: lt_error_table TYPE STANDARD TABLE OF addr_error WITH HEADER LINE,
-        lv_returncode  LIKE  szad_field-returncode.
-
-  CLEAR p_comm_table.
-
-  CALL FUNCTION 'ADDR_COMM_MAINTAIN'
-    EXPORTING
-      address_number     = p_adrnr
-      table_type         = p_table_name
-      iv_time_dependence = 'X'
-    IMPORTING
-      returncode         = lv_returncode
-    TABLES
-      comm_table         = p_comm_table
-      error_table        = lt_error_table
-    EXCEPTIONS
-      parameter_error    = 1
-      address_not_exist  = 2
-      internal_error     = 3
-      OTHERS             = 4.
-
-  READ TABLE lt_error_table WITH KEY msg_type = 'E'.
-  IF sy-subrc NE 0.
-
-    CALL FUNCTION 'ADDR_MEMORY_SAVE'
-      EXPORTING
-        execute_in_update_task = ' '
-      EXCEPTIONS
-        address_number_missing = 1
-        person_number_missing  = 2
-        internal_error         = 3
-        database_error         = 4
-        reference_missing      = 5
-        OTHERS                 = 6.
-    IF sy-subrc <> 0.
-    ENDIF.
-  ENDIF.
-ENDFORM.                    " addr_comm_maintain
 
 *&---------------------------------------------------------------------*
 *&      Form  DERIVAR_AKONT
@@ -5712,6 +3989,12 @@ CLASS zcl_bp IMPLEMENTATION.
                    <fs_fax>   TYPE bus_ei_bupa_fax,
                    <fs_smtp>  TYPE bus_ei_bupa_smtp.
 
+    DATA:
+          lv_smtp_task TYPE C LENGTH 1,
+          lv_old_smtp  TYPE adr6-smtp_addr,
+          lv_consnumber TYPE adr6-consnumber.
+
+" Telefono
     IF cs_prov-tel IS NOT INITIAL.
       cs_address-data-communication-phone-current_state = abap_true.
       APPEND INITIAL LINE TO cs_address-data-communication-phone-phone ASSIGNING <fs_phone>.
@@ -5720,6 +4003,7 @@ CLASS zcl_bp IMPLEMENTATION.
       <fs_phone>-contact-datax-telephone  = abap_true.
     ENDIF.
 
+" Fax
     IF cs_prov-fax IS NOT INITIAL.
       cs_address-data-communication-fax-current_state = abap_true.
       APPEND INITIAL LINE TO cs_address-data-communication-fax-fax ASSIGNING <fs_fax>.
@@ -5728,12 +4012,57 @@ CLASS zcl_bp IMPLEMENTATION.
       <fs_fax>-contact-DATAx-fax = abap_true.
     ENDIF.
 
+" Email
     IF cs_prov-smtp IS NOT INITIAL.
+      CLEAR: lv_old_smtp, lv_consnumber.
+
+      lv_smtp_task = gc_task_insert.
+
+      " Buscar el mail del BP
+      IF cs_prov-partner IS NOT INITIAL.
+
+        SELECT SINGLE adr6~smtp_addr, adr6~consnumber
+        FROM lfa1
+        INNER JOIN adr6
+        ON adr6~addrnumber = lfa1~adrnr
+        WHERE lfa1~lifnr = @cs_prov-partner
+        AND adr6~persnumber = @space
+        AND adr6~flgdefault = @abap_true
+        INTO (@lv_old_smtp, @lv_consnumber).
+
+        IF sy-subrc = 0.
+          " Ya existe un correo principal.
+          lv_smtp_task = gc_task_update.
+          " si el correo no cambia, no hay nada que modificar.
+          IF lv_old_smtp = cs_prov-smtp.
+            RETURN.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+
       cs_address-data-communication-smtp-current_state = abap_true.
       APPEND INITIAL LINE TO cs_address-data-communication-smtp-smtp ASSIGNING <fs_smtp>.
-      <fs_smtp>-contact-task = cv_task.
+      <fs_smtp>-contact-task = lv_smtp_task.
       <fs_smtp>-contact-data-e_mail = cs_prov-smtp.
       <fs_smtp>-contact-DATAx-e_mail = abap_true.
+
+      " UPDATE: indicar qué registro ADR6 estamos modificando
+      IF lv_smtp_task = gc_task_update.
+
+        <fs_smtp>-contact-DATA-consnumber = lv_consnumber.
+        <fs_smtp>-contact-datax-consnumber = abap_true.
+
+      ELSE.
+
+        " INSERT: ACTUALIZA_MAIL creaba el nuevo correo como:
+        " FLGDEFAULT = X
+        " HOME_FLAG  = X
+        <fs_smtp>-contact-DATA-std_no = abap_true.
+        <fs_smtp>-contact-datax-std_no = abap_true.
+        <fs_smtp>-contact-DATA-home_flag = abap_true.
+        <fs_smtp>-contact-datax-home_flag = abap_true.
+
+      ENDIF.
     ENDIF.
     "si pasa de lleno a vacio los datos, hay que plantear ese proceso
   ENDMETHOD.
@@ -5793,8 +4122,7 @@ CLASS zcl_bp IMPLEMENTATION.
     FIELD-SYMBOLS: <fs_bankdetail> TYPE bus_ei_bupa_bankdetail.
     DATA lv_iban TYPE iban.
 
-    " El programa anterior únicamente informaba los datos bancarios durante la migración 3
-    CHECK cs_prov-migr = 3. "Ver si funcionalmente sigue siendo valido
+CHECK cs_prov-migr = 3. "ver si funcionalmente es valido
     CHECK cs_context-bp_task = gc_task_insert.
 
     " Crear detalle bancario del Business Partner
