@@ -3400,6 +3400,7 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
       RETURNING
         VALUE(rs_result) TYPE ty_result.
 
+
   PRIVATE SECTION.
 
     METHODS determine_context
@@ -3442,7 +3443,6 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
     METHODS map_bp_communication
       CHANGING
         cs_prov    TYPE zfieprov
-        cv_task    TYPE c
         cs_address TYPE bus_ei_bupa_address.
 
     METHODS map_industry
@@ -3455,6 +3455,12 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
         cs_prov    TYPE zfieprov
         cs_context TYPE ty_context
         cs_data    TYPE cvis_ei_extern.
+
+    METHODS ensure_bank_master
+      CHANGING
+        cs_prov          TYPE zfieprov
+      RETURNING
+        VALUE(rs_return) TYPE bapiret2.
 
     METHODS map_withholding_tax
       CHANGING
@@ -3477,6 +3483,12 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
       CHANGING
         cs_prov       TYPE zfieprov
         cs_purchasing TYPE vmds_ei_purchasing.
+
+    METHODS map_contact_person
+      CHANGING
+        cs_prov    TYPE zfieprov
+        cs_context TYPE ty_context
+        cs_data    TYPE cvis_ei_extern.
 
     METHODS call_api
       IMPORTING
@@ -3675,6 +3687,13 @@ CLASS zcl_bp IMPLEMENTATION.
       cs_prov = cs_prov
       cs_data = ls_data ).
 
+    " Persona de contacto
+    map_contact_person(
+    CHANGING
+      cs_prov    = cs_prov
+      cs_context = ls_context
+      cs_data    = ls_data ).
+
     " Banco
     map_bank_data(
     CHANGING
@@ -3698,6 +3717,23 @@ CLASS zcl_bp IMPLEMENTATION.
         cs_prov = cs_prov
         cv_task = ls_context-purchasing_task
         cs_data = ls_data ).
+    ENDIF.
+
+    IF cs_prov-migr = 3  AND cs_prov-land1 IS NOT INITIAL AND cs_prov-bankk IS NOT INITIAL.
+      DATA(ls_bank_return) = ensure_bank_master( CHANGING cs_prov = cs_prov ).
+
+      IF ls_bank_return-type CA 'AEX'.
+
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+        rs_result-success = abap_false.
+
+        IF ls_bank_return-message IS NOT INITIAL.
+          rs_result-message = ls_bank_return-message.
+        ELSE.
+          rs_result-message = |Error al crear el banco { cs_prov-land1 }/{ cs_prov-bankk }|.
+        ENDIF.
+        RETURN.
+      ENDIF.
     ENDIF.
 
     " Ejecutar API
@@ -3895,7 +3931,7 @@ CLASS zcl_bp IMPLEMENTATION.
 
     FIELD-SYMBOLS: <fs_tax> TYPE bus_ei_bupa_taxnumber.
 
-    DATA: lv_task      TYPE c LENGTH 1,
+    DATA: lv_task      TYPE c LENGTH 1 VALUE gc_task_insert,
           lv_old_value TYPE string.
 
     " Comprobar si esa categoría fiscal ya existe para el BP
@@ -3911,21 +3947,21 @@ CLASS zcl_bp IMPLEMENTATION.
       IF sy-subrc = 0.
         lv_task = gc_task_update.
       ENDIF.
+    ENDIF.
 
-      APPEND INITIAL LINE TO cs_data-partner-central_data-taxnumber-taxnumbers ASSIGNING <fs_tax>.
+    APPEND INITIAL LINE TO cs_data-partner-central_data-taxnumber-taxnumbers ASSIGNING <fs_tax>.
 
-      <fs_tax>-task = lv_task.
-      <fs_tax>-data_key-taxtype = cv_taxtype.
+    <fs_tax>-task = lv_task.
+    <fs_tax>-data_key-taxtype = cv_taxtype.
 
-      IF iv_extended = abap_true.
+    IF iv_extended = abap_true.
 
-        " Número de identificación fiscal ZFIEPROV-CIF -> TAXNUMXL
-        <fs_tax>-data_key-taxnumxl = cv_value.
-      ELSE.
+      " Número de identificación fiscal ZFIEPROV-CIF -> TAXNUMXL
+      <fs_tax>-data_key-taxnumxl = cv_value.
+    ELSE.
 
-        " NIF3 ZFIEPROV-STCD3 -> TAXNUMBER
-        <fs_tax>-data_key-taxnumber = cv_value.
-      ENDIF.
+      " NIF3 ZFIEPROV-STCD3 -> TAXNUMBER
+      <fs_tax>-data_key-taxnumber = cv_value.
     ENDIF.
 
   ENDMETHOD.
@@ -3976,7 +4012,6 @@ CLASS zcl_bp IMPLEMENTATION.
     map_bp_communication(
     CHANGING
       cs_prov = cs_prov
-      cv_task = cs_context-address_task
      cs_address = <fs_address> ).
   ENDMETHOD.
 
@@ -3990,81 +4025,154 @@ CLASS zcl_bp IMPLEMENTATION.
                    <fs_smtp>  TYPE bus_ei_bupa_smtp.
 
     DATA:
-          lv_smtp_task TYPE C LENGTH 1,
-          lv_old_smtp  TYPE adr6-smtp_addr,
-          lv_consnumber TYPE adr6-consnumber.
+      lv_adrnr            TYPE lfa1-adrnr,
+      lv_phone_task       TYPE c LENGTH 1,
+      lv_old_phone        TYPE adr2-tel_number,
+      lv_phone_consnumber TYPE adr2-consnumber,
+      lv_fax_task         TYPE c LENGTH 1,
+      lv_old_fax          TYPE adr3-fax_number,
+      lv_fax_consnumber   TYPE adr3-consnumber,
+      lv_smtp_task        TYPE c LENGTH 1,
+      lv_old_smtp         TYPE adr6-smtp_addr,
+      lv_smtp_consnumber  TYPE adr6-consnumber.
 
-" Telefono
+    IF cs_prov-partner IS NOT INITIAL.
+      SELECT SINGLE adrnr FROM lfa1
+      WHERE lifnr = @cs_prov-partner
+      INTO @lv_adrnr.
+    ENDIF.
+
+    " Telefono
     IF cs_prov-tel IS NOT INITIAL.
-      cs_address-data-communication-phone-current_state = abap_true.
-      APPEND INITIAL LINE TO cs_address-data-communication-phone-phone ASSIGNING <fs_phone>.
-      <fs_phone>-contact-task = cv_task.
-      <fs_phone>-contact-data-telephone = cs_prov-tel.
-      <fs_phone>-contact-datax-telephone  = abap_true.
-    ENDIF.
+      lv_phone_task = gc_task_insert.
+      CLEAR: lv_old_phone, lv_phone_consnumber.
+      " Para un BP existente buscamos su teléfono principal
+      IF lv_adrnr IS NOT INITIAL.
 
-" Fax
-    IF cs_prov-fax IS NOT INITIAL.
-      cs_address-data-communication-fax-current_state = abap_true.
-      APPEND INITIAL LINE TO cs_address-data-communication-fax-fax ASSIGNING <fs_fax>.
-      <fs_fax>-contact-task = cv_task.
-      <fs_fax>-contact-data-fax = cs_prov-fax.
-      <fs_fax>-contact-DATAx-fax = abap_true.
-    ENDIF.
-
-" Email
-    IF cs_prov-smtp IS NOT INITIAL.
-      CLEAR: lv_old_smtp, lv_consnumber.
-
-      lv_smtp_task = gc_task_insert.
-
-      " Buscar el mail del BP
-      IF cs_prov-partner IS NOT INITIAL.
-
-        SELECT SINGLE adr6~smtp_addr, adr6~consnumber
-        FROM lfa1
-        INNER JOIN adr6
-        ON adr6~addrnumber = lfa1~adrnr
-        WHERE lfa1~lifnr = @cs_prov-partner
-        AND adr6~persnumber = @space
-        AND adr6~flgdefault = @abap_true
-        INTO (@lv_old_smtp, @lv_consnumber).
+        SELECT SINGLE tel_number, consnumber  FROM adr2
+        WHERE addrnumber = @lv_adrnr
+        AND persnumber = @space
+        AND flgdefault = @abap_true
+        INTO (@lv_old_phone, @lv_phone_consnumber).
 
         IF sy-subrc = 0.
-          " Ya existe un correo principal.
-          lv_smtp_task = gc_task_update.
-          " si el correo no cambia, no hay nada que modificar.
-          IF lv_old_smtp = cs_prov-smtp.
-            RETURN.
-          ENDIF.
+          " Ya existe un teléfono principal
+          lv_phone_task = gc_task_update.
         ENDIF.
       ENDIF.
 
-      cs_address-data-communication-smtp-current_state = abap_true.
-      APPEND INITIAL LINE TO cs_address-data-communication-smtp-smtp ASSIGNING <fs_smtp>.
-      <fs_smtp>-contact-task = lv_smtp_task.
-      <fs_smtp>-contact-data-e_mail = cs_prov-smtp.
-      <fs_smtp>-contact-DATAx-e_mail = abap_true.
+      " Solo enviar datos si:
+      " - no existía teléfono principal, o
+      " - el teléfono ha cambiado.
+      IF lv_phone_task = gc_task_insert OR lv_old_phone <> cs_prov-tel.
+        APPEND INITIAL LINE TO cs_address-data-communication-phone-phone ASSIGNING <fs_phone>.
+        <fs_phone>-contact-task = lv_phone_task.
+        <fs_phone>-contact-data-telephone = cs_prov-tel.
+        <fs_phone>-contact-datax-telephone  = abap_true.
 
-      " UPDATE: indicar qué registro ADR6 estamos modificando
-      IF lv_smtp_task = gc_task_update.
+        IF lv_phone_task = gc_task_update.
 
-        <fs_smtp>-contact-DATA-consnumber = lv_consnumber.
-        <fs_smtp>-contact-datax-consnumber = abap_true.
+          " Identifica exactamente qué ADR2 modificar.
+          <fs_phone>-contact-data-consnumber = lv_phone_consnumber.
+          <fs_phone>-contact-datax-consnumber = abap_true.
 
-      ELSE.
+        ELSE.
 
-        " INSERT: ACTUALIZA_MAIL creaba el nuevo correo como:
-        " FLGDEFAULT = X
-        " HOME_FLAG  = X
-        <fs_smtp>-contact-DATA-std_no = abap_true.
-        <fs_smtp>-contact-datax-std_no = abap_true.
-        <fs_smtp>-contact-DATA-home_flag = abap_true.
-        <fs_smtp>-contact-datax-home_flag = abap_true.
-
+          " No había teléfono principal: el nuevo pasa a ser el principal
+          <fs_phone>-contact-data-std_no =  abap_true.
+          <fs_phone>-contact-datax-std_no = abap_true.
+          <fs_phone>-contact-data-home_flag =  abap_true.
+          <fs_phone>-contact-datax-home_flag = abap_true.
+        ENDIF.
       ENDIF.
     ENDIF.
-    "si pasa de lleno a vacio los datos, hay que plantear ese proceso
+
+    " Fax
+    IF cs_prov-fax IS NOT INITIAL.
+      lv_fax_task = gc_task_insert.
+      CLEAR: lv_old_fax, lv_fax_consnumber.
+
+      " Buscar fax principal existente.
+      IF lv_adrnr IS NOT INITIAL.
+        SELECT SINGLE fax_number, consnumber FROM adr3
+        WHERE addrnumber = @lv_adrnr
+        AND persnumber = @space
+        AND flgdefault = @abap_true
+        INTO (@lv_old_fax, @lv_fax_consnumber).
+
+        IF sy-subrc = 0.
+          lv_fax_task = gc_task_update.
+        ENDIF.
+      ENDIF.
+
+      IF lv_fax_task = gc_task_insert OR lv_old_fax <> cs_prov-fax.
+        APPEND INITIAL LINE TO cs_address-data-communication-fax-fax ASSIGNING <fs_fax>.
+        <fs_fax>-contact-task = lv_fax_task.
+        <fs_fax>-contact-data-fax = cs_prov-fax.
+        <fs_fax>-contact-DATAx-fax = abap_true.
+        IF lv_fax_task = gc_task_update.
+
+          <fs_fax>-contact-data-consnumber = lv_fax_consnumber.
+          <fs_fax>-contact-datax-consnumber = abap_true.
+
+        ELSE.
+
+          <fs_fax>-contact-data-std_no = abap_true.
+          <fs_fax>-contact-datax-std_no = abap_true.
+          <fs_fax>-contact-data-home_flag = abap_true.
+          <fs_fax>-contact-datax-home_flag = abap_true.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+    " Email
+    IF cs_prov-smtp IS NOT INITIAL.
+
+      lv_smtp_task = gc_task_insert.
+
+      CLEAR: lv_old_smtp, lv_smtp_consnumber.
+
+      " Buscar correo principal existente.
+      IF lv_adrnr IS NOT INITIAL.
+        SELECT SINGLE smtp_addr, consnumber FROM adr6
+        WHERE addrnumber = @lv_adrnr
+        AND persnumber = @space
+        AND flgdefault = @abap_true
+        INTO (@lv_old_smtp, @lv_smtp_consnumber).
+
+        IF sy-subrc = 0.
+          lv_smtp_task = gc_task_update.
+        ENDIF.
+      ENDIF.
+      " Sin correo principal -> INSERT
+      " Principal diferente   -> UPDATE
+      " Principal igual       -> no hacer nada
+      IF lv_smtp_task = gc_task_insert OR lv_old_smtp <> cs_prov-smtp.
+
+        APPEND INITIAL LINE TO cs_address-data-communication-smtp-smtp ASSIGNING <fs_smtp>.
+        <fs_smtp>-contact-task = lv_smtp_task.
+        <fs_smtp>-contact-data-e_mail = cs_prov-smtp.
+        <fs_smtp>-contact-DATAx-e_mail = abap_true.
+
+        " UPDATE: indicar qué registro ADR6 estamos modificando
+        IF lv_smtp_task = gc_task_update.
+
+          <fs_smtp>-contact-data-consnumber = lv_smtp_consnumber.
+          <fs_smtp>-contact-datax-consnumber = abap_true.
+
+        ELSE.
+
+          " INSERT: ACTUALIZA_MAIL creaba el nuevo correo como:
+          " FLGDEFAULT = X
+          " HOME_FLAG  = X
+          <fs_smtp>-contact-data-std_no = abap_true.
+          <fs_smtp>-contact-datax-std_no = abap_true.
+          <fs_smtp>-contact-data-home_flag = abap_true.
+          <fs_smtp>-contact-datax-home_flag = abap_true.
+
+        ENDIF.
+      ENDIF.
+    ENDIF.
   ENDMETHOD.
 
 *--------------------------------------------------------------------*
@@ -4114,6 +4222,41 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
+  METHOD map_contact_person.
+
+    DATA: lv_contact_id TYPE bapicontact_01-contact.
+
+    FIELD-SYMBOLS: <fs_contact> TYPE vmds_ei_contacts.
+
+    CHECK cs_context-vendor_task = gc_task_insert.
+
+    " DZSABE_K no es obligatorio
+    CHECK cs_prov-dzsabe_k IS NOT INITIAL.
+
+    " Obtener número interno para la persona de contacto
+    CALL FUNCTION 'BAPI_PARTNEREMPLOYEE_GETINTNUM'
+      EXPORTING
+        quantity  = 1
+      IMPORTING
+        contactid = lv_contact_id.
+
+    APPEND INITIAL LINE TO cs_data-vendor-central_data-contact-contacts ASSIGNING <fs_contact>.
+
+    " Crear nueva persona de contacto
+    <fs_contact>-task = gc_task_insert.
+
+    " Identificador KNVK-PARNR
+    <fs_contact>-data_key-parnr = lv_contact_id.
+
+    " Crear los datos de dirección/nombre del contacto
+    <fs_contact>-address_type_3-task = gc_task_insert.
+
+    " El BDC anterior únicamente informaba KNVK-NAME1.
+    <fs_contact>-address_type_3-postal-data-fullname = cs_prov-dzsabe_k.
+    <fs_contact>-address_type_3-postal-datax-fullname = abap_true.
+
+  ENDMETHOD.
+
 *--------------------------------------------------------------------*
 *& PARTNER - CENTRAL_DATA - BANKDETAIL
 *--------------------------------------------------------------------*
@@ -4122,7 +4265,7 @@ CLASS zcl_bp IMPLEMENTATION.
     FIELD-SYMBOLS: <fs_bankdetail> TYPE bus_ei_bupa_bankdetail.
     DATA lv_iban TYPE iban.
 
-CHECK cs_prov-migr = 3. "ver si funcionalmente es valido
+    CHECK cs_prov-migr = 3. "ver si funcionalmente es valido
     CHECK cs_context-bp_task = gc_task_insert.
 
     " Crear detalle bancario del Business Partner
@@ -4182,6 +4325,60 @@ CHECK cs_prov-migr = 3. "ver si funcionalmente es valido
 
   ENDMETHOD.
 
+  METHOD ensure_bank_master.
+
+    DATA ls_bank_address TYPE bapi1011_address.
+
+    CLEAR rs_return.
+
+    " El BDC antiguo solo ejecutaba esta lógica para el proceso de migración 3.
+    CHECK cs_prov-migr = 3.
+    CHECK cs_prov-land1 IS NOT INITIAL.
+    CHECK cs_prov-bankk IS NOT INITIAL.
+
+
+    " Comprobar si el banco ya existe.
+    " Si existe, el antiguo flujo tampoco necesitaba entrar en SAPLBANK para crearlo
+    SELECT SINGLE @abap_true FROM bnka
+    WHERE banks = @cs_prov-land1
+    AND bankl = @cs_prov-bankk
+    INTO @DATA(lv_bank_exists).
+
+    IF sy-subrc = 0.
+      RETURN.
+    ENDIF.
+
+    " El BDC antiguo hacía:
+    " BNKA-BANKA = 'OBLIG'
+    " BNKA-SWIFT = ''
+    " BAPI1011_ADDRESS-BANK_NAME corresponde al nombre
+    " del banco y SWIFT_CODE al código SWIFT.
+    ls_bank_address-bank_name  = 'OBLIG'.
+    ls_bank_address-swift_code = space.
+
+    " Crear maestro bancario.
+    " I_XUPDATE = SPACE:
+    " hacemos la actualización de forma síncrona y mantenemos la operación dentro de la LUW actual.
+
+    CALL FUNCTION 'BAPI_BANK_CREATE'
+      EXPORTING
+        bank_ctry    = cs_prov-land1
+        bank_key     = cs_prov-bankk
+        bank_address = ls_bank_address
+        i_xupdate    = space
+      IMPORTING
+        return       = rs_return.
+
+    " Error técnico del propio CALL FUNCTION
+    IF sy-subrc <> 0.
+      rs_return-type = 'E'.
+
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+      WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+      INTO rs_return-message.
+    ENDIF.
+
+  ENDMETHOD.
 *--------------------------------------------------------------------*
 *& VENDOR - COMPANY_DATA - COMPANY
 *--------------------------------------------------------------------*
