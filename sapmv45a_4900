@@ -1,0 +1,1206 @@
+* 4.0: Subscreen: Übersicht-TC Erfassung Default
+*      Auftrag Anfrage Verkaufsauskunf
+
+* PBO *****************************************************************
+process before output.
+
+  module tctrl_u_erf_auftrag_init.
+
+  module status_lesen_init.
+
+  module xvbap_aufsetzen.
+
+  module xvbep_aufsetzen.
+* bei entsprechendem Änderungsstand aufsetzen
+  module xvbsn_aufsetzen.
+
+* module vbak_bearbeiten_vor.                         " Bach
+  module show_ism_specific_fields switch ism_mps_basis.
+
+  module ppe_init switch sd_sfws_ui3_o2c.
+
+  loop with control tctrl_u_erf_auftrag.
+
+    module xvbap_lesen.
+* Positionsindex für Änderungsstand aufbauen
+    module ivbsn_aufbauen_position.
+* XVBSN-Satz für die eintsprechende Position lesen
+    module xvbsn_lesen.
+
+*  Zur 4.6 neue Module, sieh unten
+*   MODULE XKOMV_LESEN.
+* Neu in 4.6
+    module xkomv_lesen_n46.
+    module ppe_read switch sd_sfws_ui3_o2c.
+
+    module status_lesen.
+
+*   MODULE TVAG_SELECT_LOOP. "Absagegrund-Text, Not used because Listbox
+
+    module tprit_select.               "Lieferpriorität - Text
+
+* Aufruf der Funktionsbausteine zur Feldauswahl einzeln
+    module feldauswahl.
+    module button_auswahl_tctrl.
+
+    module vbep-edatu_ausgeben.
+*   ADCI MPN
+    module fill_mpn switch ad_mpn_ic.
+    module order_generated switch ism_mps_basis.
+    module ism_contract_created switch ism_mps_basis.
+    module ism_fill_additional_fields switch ism_mps_basis.
+    module msr_map_fields_pbo switch ops_sfws_ui_advret2.
+
+    MODULE prodh_univ_get_attribs.
+    MODULE hide_rfm_switch_fld.
+
+  endloop.
+
+  module vbak_bearbeiten_vor.
+
+* Aufruf der Funktionsbausteine zur Feldauswahl
+  module feldauswahl.
+  module feldauswahl_tctrl_hide_cols.
+
+  module set_cursor.
+  call subscreen subscreen_buttons
+       including 'SAPMV45A' dynpro_buttons.
+
+  module type_ahead_4900.
+
+
+* PAI *****************************************************************
+process after input.
+
+  call subscreen subscreen_buttons.
+
+  loop with control tctrl_u_erf_auftrag.
+
+    module vbap_unterlegen.
+
+    module vbep_unterlegen.
+* Änderungsstand aus XVBSN für Änderungsprüfungen bereitstellen
+    module vbsn_unterlegen.
+* IS2ERP:Media enhancement
+    chain.                                                    "ISBN-Nr.
+      field: vbap-idcodetype,                                 "ISBN-Nr.
+             vbap-ismidentcode,                               "ISBN-Nr.
+             rv45a-mabnr.                                     "ISBN-Nr.
+      module ism_convert_isbn_to_matnr on chain-request
+                                       switch ism_mps_basis.
+    endchain.
+
+    module vbap-waerk_setzen.
+*----------------------------------------------------------------------*
+* Auftragsposition: Fußzeilenfelder prüfen                             *
+*----------------------------------------------------------------------*
+
+    chain.
+      field: rv45a-stat01,
+             rv45a-stat02,
+             rv45a-stat03,
+             rv45a-stat04,
+             rv45a-stat05,
+             rv45a-stat06,
+             rv45a-stat07,
+             rv45a-stat08,
+             rv45a-stat09,
+             rv45a-stat10
+        module status_aendern on chain-request.
+    endchain.
+
+    chain.
+* Ist die Positionsnummer noch korrekt in diesem
+* Bearbeitungsschritt: z.B. W-Message und offene
+* Positionsnummer
+      field:
+         vbap-posnr
+           module vbap_posnr_pruefen_2 on request.
+    endchain.
+
+    chain.
+* Ist die manuelle Positionsnummer bereits vorhanden ?
+      field:
+             vbap-uepos,
+             vbap-posnr
+               module vbap-posnr_pruefen on request.
+    endchain.
+
+    chain.
+* Ist die übergeordnete Position erlaubt ?
+      field:
+             vbap-posnr,
+             vbap-uepos
+               module vbap-uepos_pruefen on request.
+    endchain.
+
+* Eingabe auf Dynpro feststellen
+* IS2ERP Media enhancement
+    chain.                                              "ISBN-Nr.
+      field: vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode.                         "ISBN-Nr.
+      module rv45a_mabnr_filled on chain-request.       "ISBN-Nr.
+    endchain.                                           "ISBN-Nr.
+
+    field rv45a-mabnr module rv45a_mabnr_filled on request.
+
+* Eingabe auf Dynpro feststellen
+    field vbap-matnr module vbap_matnr_filled on request.
+
+* Menge für Manuelle Produktselektion bereitstellen
+    field: rv45a-kwmeng.
+    field: vbap-vrkme.
+    field: vbap-zmeng.
+    field: vbap-zieme.
+    field: vbap-vkaus.
+
+    chain.
+* Ist das eingegebene Material oder Charge vorhanden ?
+      field:
+             vbap-pstyv,
+             vbap-werks,
+             vbap-charg,
+             vbap-lgort,
+             vbap-kdmat,
+             vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbkd-wminr,
+             vbap-abgrs,                       "note 3526739
+             vbap-kalsm_k,                     "note 3526739
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             rv45a-ccode,
+             vbap-matwa
+
+               module vbap-matnr_pruefen on chain-request.
+    endchain.
+
+    chain.
+* Ist das Werk und Lager bei diesen Material vorhanden?
+      field:
+             vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbap-charg,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             gs_msr_sales_item-fu_code,
+             vbap-lgort,
+             vbap-werks
+               module vbap-werks_pruefen on request.
+    endchain.
+
+    chain.                  "EHP603 IUID
+* Is material marked as UID relevant?
+      field: vbap-matnr,
+             rv45a-mabnr,
+             vbap-werks,
+             vbap-iuid_relevant.
+      module vbap-iuid_pruefen
+          on chain-request switch appl_uid_ui.
+    endchain.
+
+    chain.
+* Ist ein Positionstyp bei Eingabe in der Fußzeile ermittelbar ?
+      field:
+             vbap-posnr,
+             vbap-uepos,
+             vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbap-kdmat,
+             vbap-arktx,
+             vbapd-arktx_g,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             vbap-charg,
+             vbap-pstyv.
+
+      module vbap-pstyv_pruefen on chain-request.
+    endchain.
+
+*----------------------------------------------------------------------*
+* Füllen der Position, falls eine Eingabe in der Fußzeile war          *
+*----------------------------------------------------------------------*
+
+    chain.
+      field:
+             vbap-posnr,
+             vbap-zzdip, "ADD DTT
+             vbap-uepos,
+             vbap-werks,
+             vbap-lgort,
+             vbap-matnr,
+             vbap-vrkme,
+             rv45a-kwmeng,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbap-kdmat,
+             vbap-arktx,
+             vbapd-arktx_g,
+             vbap-faksp,
+             vbap-charg,
+             vbap-pstyv,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+*            Advanced Returns Enh.
+             vbap-zmeng,
+             vbap-zieme,
+             gs_msr_sales_item-fu_code,                "EHP606
+             gs_msr_sales_item-refund_control,         "EHP606
+             gs_msr_sales_item-next_plant,             "EHP606
+             vbap-iuid_relevant,                           "EHP3
+             vbap-posex,
+             vbap-untto,
+             vbap-uebto,
+             vbap-handoverloc.
+      module vbap_fuellen on chain-request.
+    endchain.
+
+    field vbap-lgort module vbap-lgort_pruefen on request.
+
+    chain.
+* Ist die Charge  vorhanden?
+      field: vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             vbap-charg,
+             vbap-werks.
+
+      module vbap-charg_pruefen on chain-request.
+    endchain.
+
+    chain.
+* Ist die eingegebene Bewertungsart mit Charge verträglich?
+      field:  vbap-matnr,
+              vbapd-matnr_g,
+              rv45a-mabnr,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+              vbap-charg.
+
+      module vbap-bwtar_charg_pruefen on chain-request.
+    endchain.
+
+*    MODULE VBAP_ANLEGEN_VORSCHL.
+
+*----------------------------------------------------------------------*
+* Auftragsposition: Prüfen der allgemeinen Felder                      *
+*----------------------------------------------------------------------*
+
+* Ist die Sparte zulässig ?
+    chain.
+      field vbap-spart
+               module vbap-spart_pruefen_e on request.
+    endchain.
+
+    chain.
+* Ist die Materialnummer oder der Positionstyp vorhanden ?
+      field:
+             vbap-matnr,
+             vbapd-matnr_g,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             rv45a-mabnr,
+             vbap-kdmat,
+             vbap-pstyv.
+
+      module vbap-matnr_0_pruefen.
+    endchain.
+
+* Advanced Returns Enh.
+    chain.
+* Ist die Zielmengeneinheit bei diesem Material erlaubt ?
+      field:
+             vbap-zmeng,
+             vbap-zieme.
+      module vbap-zieme_pruefen on chain-request
+                                switch ops_sfws_sc_advret1.
+      module vbap-zmeng_pruefen on chain-request
+                                switch ops_sfws_sc_advret1.
+    endchain.
+
+    chain.
+      field: vbap-abgru,
+             rv45a-kwmeng
+        module vbep-wmeng_setzen on request.
+* Ist die Verkaufsmengeneinheit bei diesem Material erlaubt ?
+      field: rv45a-vbap_selkz,
+             vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             rv45a-kwmeng,
+             vbap-vrkme,
+             vbap-charg,
+             vbap-kdmat,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             vbap-matnr,
+             vbapd-matnr_g
+               module vbap-vrkme_pruefen on request,
+             vbap-vrkme
+               module vbap-vrkme_pruefen on request.
+    endchain.
+
+* Prüfen der Bestellnummer
+    field vbkd-bstkd
+      module vbkd-bstkd_pruefen on request.
+
+* Bestellpositionsnummer prüfen
+    chain.
+      field: vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             vbap-kdmat,
+             vbap-posex
+              module vbap-posex_pruefen on chain-request.
+    endchain.
+
+    chain.                                               "IS2ERP IS-OIL
+*   Determine tax details of material                    "SO4K000544 JHL
+*   This must be done after plant is determined          "SO4K000544 JHL
+      field:                                             "SO4K000544 JHL
+             vbap-werks,                                 "SO4K000544 JHL
+             vbap-matnr.                                 "SO4K000544 JHL
+      module vbap-mcoe_tdp-process switch oih_excise_duty.
+    endchain.                                            "IS2ERP IS-OIL
+
+
+*   check if first date has correct format
+    chain.
+      field: rv45a-etdat,
+             rv45a-prgbz.
+      module rv45a_etdat_in_check on chain-request.
+    endchain.
+
+* Ist die Aktionsnummer erlaubt ?
+    chain.
+      field:
+             vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbap-vrkme,
+             rv45a-etdat,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             rv45a-prgbz,
+             vbkd-waktion.
+
+      module vbkd-waktion_pruefen on chain-request.
+    endchain.
+
+* Abgrenzungsschlüssel
+    chain.
+      field: vbap-abgrs.
+      module vbap_abgrs_pruefen on chain-request.
+    endchain.
+
+* Preismaterial
+    chain.
+      field vbap-pmatn
+        module vbap-pmatn_pruefen on request.
+    endchain.
+
+    chain.
+* Fakturasperre prüfen
+      field:
+             vbap-faksp
+               module vbap-faksp_pruefen on request.
+    endchain.
+
+    chain.
+* Zahlungsbedingungen prüfen
+      field:
+             vbkd-zterm
+               module vbkd-zterm_pruefen on request.
+    endchain.
+
+* Valutaangaben
+    chain.
+      field: vbkd-zterm,
+             vbkd-valdt,
+             vbkd-valtg.
+      module valuta_pruefen on chain-request.
+    endchain.
+
+* Preisdatum prüfen
+    chain.
+      field: vbkd-prsdt,
+             vbkd-kursk.
+
+      module vbkd-prsdt_pruefen on chain-request.
+    endchain.
+
+    chain.
+* Lieferbedingungen prüfen
+      field: vbkd-incov,
+             vbkd-inco1,
+             vbkd-inco2,
+             vbkd-inco2_l,
+             vbkd-inco3_l.
+      module vbkd-incoterm_version.
+      module vbkd-inco1_pruefen on chain-request.
+    endchain.
+****************************************************
+
+    chain.
+* Absagegrund
+      field:
+*            TVAGT-BEZEI,         " Not used because Listbox
+             vbap-abgru
+               module vbap-abgru_pruefen on request.
+    endchain.
+
+    chain.
+* Seriennummer prüfen
+      field:
+             vbap-sernr
+               module vbap-sernr_pruefen on request.
+    endchain.
+
+*   CHAIN.
+* Gerätematerial prüfen
+* Ist das Werk und Lager bei diesen Gerätematerial vorhanden?
+*     FIELD:
+*            VBAP-WERKS,
+*            VBAPD-MATNR_G
+*                 MODULE VBAP-MATNR_G_PRUEFEN ON CHAIN-REQUEST.
+*   ENDCHAIN.
+
+* Bestellart Kunde
+    field vbkd-bsark
+    module vbkd-bsark_pruefen on request.
+
+
+* Bestellart Warenempfänger
+    field vbkd-bsark_e
+    module vbkd-bsark_e_pruefen on request.
+
+* Versandstelle prüfen
+    field vbap-vstel module vbap-vstel_pruefen on request.
+
+    chain.
+      field:
+             vbap-route.
+
+      module vbap-route_pruefen on chain-request.
+
+      module route_vsart_check on chain-request.
+    endchain.
+
+* Lieferpriorität prüfen
+    field vbap-lprio module vbap-lprio_pruefen on request.
+
+    chain.
+      field: vbap-brgew,
+             vbap-ntgew,
+             vbap-gewei.
+      module vbap-brgew_pruefen on chain-request.
+    endchain.
+
+    chain.
+* Volumen plausibel ?
+      field: vbap-volum,
+             vbap-voleh.
+      module vbap-volum_pruefen on chain-request.
+    endchain.
+
+* Über-/Unterlieferungstoleranz prüfen bei unbegrenzter Toleranz.
+    chain.
+      field: vbap-uebto,
+             vbap-untto.
+      module vbap-uebtk_pruefen on chain-request.
+    endchain.
+
+* RV45A-ETDAT changed manually
+    chain.
+      field: rv45a-etdat,
+             rv45a-prgbz.
+      module rv45a_etdat_m_change on chain-request.
+    endchain.
+* Check if handover location exists in LFA1
+    field vbap-handoverloc
+      module vbap-handoverloc_check on request.
+
+* Hier weitere Prüfungen
+
+*----------------------------------------------------------------------*
+* Auftragsposition: alle Felder aus Position, kaufmännischen Daten und *
+*                   zugehörige E/A-Felder in der 'BEARBEITEN-KETTE'
+**----------------------------------------------------------------------
+*
+* IS2ERP Media enhancement
+    chain.
+      field: vbap-matnr,
+             rv45a-mabnr,
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode.                         "ISBN-Nr.
+      module ism_set_startorder  on chain-request switch ism_mps_basis.
+    endchain.
+
+    chain.
+      field: rv45a-vbap_selkz,
+             vbap-posnr,
+             vbap-uepos,
+             vbap-werks,
+             vbap-matnr,
+             vbap-zzdip, "ADD DTT
+             vbap-sgt_rcat,
+* FSH : Season's field
+             vbap-fsh_season_year, "SWITCH SFSW_FASHION
+             vbap-fsh_season,      "SWITCH SFSW_FASHION
+             vbap-fsh_collection,  "SWITCH SFSW_FASHION
+             vbap-fsh_theme,       "SWITCH SFSW_FASHION
+
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbap-charg,
+             vbap-pstyv,
+             rv45a-kwmeng,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             vbap-iuid_relevant,                            "EHP3
+             vbap-vrkme,
+             rv45a-prgbz,
+             vbkd-waktion,
+             rv45a-etdat,
+             vbap-faksp,
+             vbkd-zterm,
+             vbkd-incov,
+             vbkd-inco1,
+             vbkd-inco2,
+             vbkd-inco2_l,
+             vbkd-inco3_l,
+             vbap-kdmat,
+             vbap-posex,
+             vbap-arktx,
+             vbapd-arktx_g,
+             vbap-abgru,
+             vbap-sernr,
+             vbap-ps_psp_pnr,
+             vbkd-delco,
+             vbapd-matnr_g,
+             vbapd-menge_g,
+             vbap-mvgr1,
+             vbap-mvgr2,
+             vbap-mvgr3,
+             vbap-mvgr4,
+             vbap-mvgr5,
+             vbkd-kdkg1,
+             vbkd-kdkg2,
+             vbkd-kdkg3,
+             vbkd-kdkg4,
+             vbkd-kdkg5,
+             vbap-prodh,
+             vbap-wgru1,
+             vbap-wgru2,
+             vbap-spart,
+             vbap-kondm,
+             vbkd-kdgrp,
+             vbkd-konda,
+             vbkd-pltyp,
+             vbkd-bzirk,
+             vbap-aufnr,
+             vbap-prctr,
+             vbkd-bstkd,
+             vbkd-bstdk,
+             vbkd-bsark,
+             vbkd-bstkd_e,
+             vbkd-bstdk_e,
+             vbkd-bsark_e,
+             vbkd-posex_e,
+             vbap-lgort,
+             vbap-lprio,
+             vbap-vstel,
+             vbap-kztlf,
+             vbap-route,
+             vbap-ntgew,
+             vbap-gewei,
+             vbap-brgew,
+             vbap-volum,
+             vbap-voleh,
+             vbstt-gbsta_bez,
+             vbstt-uvall_bez,
+             vbkd-kursk,
+             vbkd-prsdt,
+             vbap-matwa,
+             vbap-vkaus,
+             vbap-pmatn,
+             vbap-abgrs,
+             vbap-kalsm_k,
+             vbap-zschl_k,
+             vbkd-empst,
+             vbkd-abtnr,
+             vbap-antlf,
+             vbap-uebto,
+             vbap-untto,
+             vbkd-valdt,
+             vbkd-valtg,
+             vbkd-perfk,
+             vbkd-fkdat,
+             vbkd-fbuda,
+*             VBAP-KTGRM,
+             vbkd-wminr,
+             rv45a-ccode,
+*            VBKD-ZLSCH,
+*            VBKD-POPER.
+*            VBKD-GJAHR,
+*            VBKD-MSCHL.
+*            VBKD-MANSP.
+*            vbkd-kdgrp.
+*            vbkd-konda,
+*            vbkd-pltyp,
+*            vbkd-bzirk,
+*            vbkd-bstdk.
+             vbap-handoverloc,
+*            Advanced Returns Enh.
+             vbap-zmeng,
+             vbap-zieme,
+             vbap-msr_ret_reason,
+             vbap-msr_refund_code,
+             vbap-msr_approv_block,
+             gs_msr_sales_item-lifnr,
+             gs_msr_sales_item-next_plant,
+             gs_msr_sales_item-transshipment,
+             gs_msr_sales_item-mat_received,
+             gs_msr_sales_item-refund_control,
+             gs_msr_sales_item-inspection_code,
+             gs_msr_sales_item-at_customer_site,
+             gs_msr_sales_item-rma_vendor,
+             gs_msr_sales_item-rma_vendor_req,
+             gs_msr_sales_item-fu_code,
+             gs_msr_sales_item-nfu_code,
+             msr_s_sales_item-replace_matnr,
+             gs_msr_sales_item-replace_qty,
+             gs_msr_sales_item-replaced_qty,
+             gs_msr_sales_item-replace_unit,
+             msr_s_sales_item-paying_plant,
+             gs_msr_sales_item-refund_type,
+             gs_msr_sales_item-pre_refund,
+             gs_msr_sales_item-replace_request,
+             gs_msr_sales_item-cust_insp_code,
+             gs_msr_sales_item-cust_insp_comm.
+
+      module kvbkd_get_data on chain-request.
+
+      module kvbap_get_data.
+      module msr_map_fields_pai switch ops_sfws_ui_advret2.
+
+      module vbap_bearbeiten on chain-request.
+    endchain.
+
+*----------------------------------------------------------------------*
+* Konditionen: Bearbeiten der Eingabe                                  *
+*----------------------------------------------------------------------*
+* Die Bearbeitung soll am Schluß durchführen, ab Vers. 4.6
+
+*   CHAIN.
+*     FIELD:  RV45A-KOEIN,
+*             KOMV-KSCHL.
+*
+*     MODULE KOMV_UNTERLEGEN.
+*     FIELD: KOMV-KSCHL,
+*            RV45A-KOEIN.
+** Hier wird die Einheit für die Konvertierung von KBETR gesetzt
+*      MODULE KOMV_PRUEFEN_FIRST.
+*
+*     FIELD  KOMV-KBETR.
+*
+*     MODULE KOMV_PRUEFEN ON CHAIN-REQUEST.
+*
+*     MODULE KOMV_BEARBEITEN ON CHAIN-REQUEST.
+*   ENDCHAIN.
+
+*----------------------------------------------------------------------*
+* Einteilung: Prüfen der Fußzeilenfelder                               *
+*----------------------------------------------------------------------*
+
+    chain.
+* Ist das Wunschlieferdatum im Fabrikkalender ?
+* wegen Warnungen darf das Modul nicht feldweise aufgerufen werden
+      field:
+             rv45a-etdat,
+             rv45a-prgbz.
+      module vbep-edatu_eingeben on chain-request.
+    endchain.
+
+* Ist das Einteilungsdatum im Fabrikkalender des Werks ?
+
+    chain.
+      field:
+           rv45a-mabnr,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+           rv45a-etdat,
+           vbap-werks.
+      module vbep_edatu_pruefen on chain-request.
+    endchain.
+
+    chain.
+* Ist der Einteilungstyp erlaubt ?
+      field:
+             rv45a-etdat,
+             rv45a-prgbz
+               module vbep-ettyp_pruefen on chain-request.
+    endchain.
+
+*   CHAIN.
+* Ist der Anliefertermin ok ?
+*     FIELD: RV45A-ETDAT,
+*            RV45A-PRGBZ.
+
+*     MODULE ANLIEFERTERMIN_PRUEF ON CHAIN-REQUEST.
+*   ENDCHAIN.
+*----------------------------------------------------------------------*
+* Füllen der Einteilung, falls eine Eingabe in der Fußzeile war        *
+* Für ein besseres Fehlerhandling sind die zentralen VBAP-Felder       *
+* in dieser Kette                                                      *
+*----------------------------------------------------------------------*
+
+    chain.
+      field:
+             vbap-matnr,
+             vbap-zzdip, "ADD DTT
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbap-kdmat,
+             vbap-charg,
+             vbap-pstyv,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             rv45a-kwmeng,
+             vbap-vrkme,
+             vbap-zmeng,
+             vbap-zieme,
+             rv45a-etdat,
+             rv45a-prgbz.
+
+      module vbep_fuellen on chain-request.
+    endchain.
+
+
+*----------------------------------------------------------------------*
+* Einteilung: Prüfen der allgemeinen Felder                            *
+*----------------------------------------------------------------------*
+
+    chain.
+* Ist die Menge erlaubt ?
+      field:
+             vbap-pstyv,
+             vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbap-charg,
+             vbap-kdmat,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             rv45a-etdat,
+             rv45a-prgbz,
+             vbap-vrkme,
+             rv45a-kwmeng.
+
+      module vbep-wmeng_pruefen_a on chain-request.
+    endchain.
+* Ist die Menge erlaubt ?
+    chain.
+      field:
+             rv45a-mabnr,
+             vbap-vrkme,
+             rv45a-kwmeng.
+
+      module vbep-wmeng_pruefen_m on chain-request.
+    endchain.
+
+    chain.
+* Ist der Anliefertermin ok ?
+      field: rv45a-etdat,
+             rv45a-prgbz.
+
+      module anliefertermin_pruef on chain-request.
+    endchain.
+
+* Einteilungsdatum da ?
+    chain.
+      field:
+             rv45a-kwmeng,
+             rv45a-etdat,
+             rv45a-prgbz.
+
+      module rv45a-etdat_pruefen on chain-request.
+    endchain.
+
+* hier weitere Prüfungen aufnehmen
+
+*----------------------------------------------------------------------*
+* Einteilung: alle Felder der Einteilung und zugehörige E/A-Felder     *
+*             in der 'BEARBEITEN-KETTE'                                *
+*             Für ein besseres Fehlerhandling sind die zentralen       *
+*             VBAP-Felder mit in dieser Kette.                         *
+*----------------------------------------------------------------------*
+
+    chain.
+      field:
+* Durch Statusänderung im Übersichtsbild kann es notwendig werden,
+* daß die Beschaffung gelöscht/angelegt werden muß
+             rv45a-stat01,
+             rv45a-stat02,
+             rv45a-stat03,
+             rv45a-stat04,
+             rv45a-stat05,
+             rv45a-stat06,
+             rv45a-stat07,
+             rv45a-stat08,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             rv45a-stat09,
+             rv45a-stat10,
+             vbap-posnr,
+             vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbap-kdmat,
+             vbap-arktx,
+             vbapd-arktx_g,
+             vbap-charg,
+             vbap-pstyv,
+             vbap-uepos,
+             vbap-sgt_rcat,
+             rv45a-etdat,
+             rv45a-prgbz,
+             vbap-werks,
+             rv45a-kwmeng,
+             vbap-vrkme,
+             vbkd-waktion,
+             gs_msr_sales_item-fu_code.
+
+      module vbep_bearbeiten on chain-request.
+    endchain.
+
+* Prüfen, daß entweder die FZs oder die Termine genutzt werden,
+* falls eine Eingabe in der Fußzeile war.
+    chain.
+      field: vbsn-aeskd,
+             vbap-sernr.
+
+      module vbsn_fzdat_pruefen on chain-request.
+* MODULE VBAP-SERNR_PRUEFEN hier nicht, da oben schon aufgerufen
+    endchain.
+
+* VBSN mit Vorschlagswerten aus den Stammdaten füllen,
+* falls eine Eingabe in der Fußzeile war.
+    chain.
+      field: vbsn-aeskd,
+             vbap-sernr.
+
+      module vbsn_fuellen on chain-request.
+    endchain.
+
+* VBSN in die Indextabellen IVBSNx und XVBSN etc. übernehmen,
+* falls eine Eingabe in der Fußzeile war.
+    chain.
+      field: vbsn-aeskd,
+             vbap-sernr.
+
+      module vbsn_bearbeiten on chain-request.
+
+      module vbsn_bearbeiten_ende on chain-request.
+    endchain.
+
+    chain.
+      field:
+             vbap-matnr,
+             vbapd-matnr_g,
+             rv45a-mabnr,
+             vbapd-menge_g,
+             vbap-charg,
+             vbap-pstyv,
+             vbap-uepos,
+             vbap-sgt_rcat,
+* FSH : Season's field
+             vbap-fsh_season_year, "SWITCH SFSW_FASHION
+             vbap-fsh_season,      "SWITCH SFSW_FASHION
+             vbap-fsh_collection,  "SWITCH SFSW_FASHION
+             vbap-fsh_theme,       "SWITCH SFSW_FASHION
+* FSH : Season's field
+             rv45a-etdat,
+             rv45a-prgbz,
+             vbap-werks,
+             rv45a-kwmeng,
+             vbap-vrkme,
+             vbap-faksp,
+             vbkd-zterm,
+             vbkd-inco1,
+             vbkd-inco2,
+             vbkd-inco2_l,
+             vbkd-inco3_l,
+             vbap-abgru,
+             vbap-posex,
+* IS2ERP Media enhancement
+             vbap-idcodetype,                           "ISBN-Nr.
+             vbap-ismidentcode,                         "ISBN-Nr.
+
+             vbap-iuid_relevant,                            "EHP3
+             vbap-arktx,
+             vbapd-arktx_g,
+             vbap-kdmat,
+             vbkd-delco,
+             vbap-sernr,
+             vbap-ps_psp_pnr,
+             vbsn-aeskd,
+             vbap-mvgr1,
+             vbap-mvgr2,
+             vbap-mvgr3,
+             vbap-mvgr4,
+             vbap-mvgr5,
+             vbkd-kdkg1,
+             vbkd-kdkg2,
+             vbkd-kdkg3,
+             vbkd-kdkg4,
+             vbkd-kdkg5,
+             vbap-prodh,
+             vbap-wgru1,
+             vbap-wgru2,
+             vbap-spart,
+             vbap-kondm,
+             vbkd-kdgrp,
+             vbkd-konda,
+             vbkd-pltyp,
+             vbkd-bzirk,
+             vbap-aufnr,
+             vbap-prctr,
+             vbkd-bstkd,
+             vbkd-bsark,
+             vbkd-bstkd_e,
+             vbkd-bstdk_e,
+             vbkd-bsark_e,
+             vbkd-posex_e,
+             vbap-lgort,
+             vbap-lprio,
+             vbap-vstel,
+             vbap-kztlf,
+             vbap-route,
+             vbap-ntgew,
+             vbap-gewei,
+             vbap-brgew,
+             vbap-volum,
+             vbap-voleh,
+             vbstt-gbsta_bez,
+             vbstt-uvall_bez,
+             vbkd-kursk,
+             vbkd-prsdt,
+             vbap-matwa,
+             vbap-vkaus,
+             vbap-pmatn,
+             vbap-abgrs,
+             vbap-kalsm_k,
+             vbap-zschl_k,
+             vbkd-empst,
+             vbkd-abtnr,
+             vbap-antlf,
+             vbap-uebto,
+             vbap-untto,
+             vbkd-valdt,
+             vbkd-valtg,
+             vbkd-perfk,
+             vbkd-fkdat,
+             vbkd-fbuda,
+*             VBAP-KTGRM,
+             rv45a-stat01,
+             rv45a-stat02,
+             rv45a-stat03,
+             rv45a-stat04,
+             rv45a-stat05,
+             rv45a-stat06,
+             rv45a-stat07,
+             rv45a-stat08,
+             rv45a-stat09,
+             rv45a-stat10,
+*            VBKD-ZLSCH,
+*            VBKD-POPER.
+*            VBKD-GJAHR,
+*            VBKD-MSCHL.
+*            VBKD-MANSP.
+             vbkd-kdgrp,
+*            vbkd-konda,
+*            vbkd-pltyp,
+*            vbkd-bzirk,
+*            vbkd-bstdk.
+             vbap-handoverloc,
+*            Advanced Returns Enh.
+             vbap-zmeng,
+             vbap-zieme,
+             vbap-msr_ret_reason,
+             vbap-msr_refund_code,
+             vbap-msr_approv_block,
+
+*            For the item billing block BAdI
+             gs_msr_sales_item-lifnr,
+             gs_msr_sales_item-next_plant,
+             gs_msr_sales_item-transshipment,
+             gs_msr_sales_item-mat_received,
+             gs_msr_sales_item-refund_control,
+             gs_msr_sales_item-inspection_code,
+             gs_msr_sales_item-at_customer_site,
+             gs_msr_sales_item-rma_vendor,
+             gs_msr_sales_item-rma_vendor_req,
+             gs_msr_sales_item-fu_code,
+             gs_msr_sales_item-nfu_code,
+             msr_s_sales_item-replace_matnr,
+             gs_msr_sales_item-replace_qty,
+             gs_msr_sales_item-replaced_qty,
+             gs_msr_sales_item-replace_unit,
+             msr_s_sales_item-paying_plant,
+             gs_msr_sales_item-refund_type,
+             gs_msr_sales_item-pre_refund,
+             gs_msr_sales_item-replace_request,
+             gs_msr_sales_item-cust_insp_code,
+             gs_msr_sales_item-cust_insp_comm.
+
+      module vbap_bearbeiten_ende on chain-request.
+    endchain.
+
+    module vbap_anlegen_vorschl.
+
+*  Zu 4.6 neue KOMV-Bearbeitungslogik.
+    chain.
+      field: komv-kschl,
+             rv45a-koein.
+
+      module koein_ermitteln_n46.
+
+      field: komv-kbetr.
+
+      module komv_bearbeiten_n46 on chain-request.
+
+      module preisfindung_nachbereiten_pos on chain-request.
+    endchain.
+
+* Handle PPE fields
+    chain.
+      field: tds_va_ppe-koein_01,
+             tds_va_ppe-koein_02,
+             tds_va_ppe-koein_03,
+             tds_va_ppe-koein_04,
+             tds_va_ppe-koein_05,
+             tds_va_ppe-koein_06.
+
+      module koein_fill_ppe switch sd_sfws_ui3_o2c.
+
+      field: tds_va_ppe-kbetr_01,
+             tds_va_ppe-kbetr_02,
+             tds_va_ppe-kbetr_03,
+             tds_va_ppe-kbetr_04,
+             tds_va_ppe-kbetr_05,
+             tds_va_ppe-kbetr_06.
+
+      module komv_process_ppe on chain-request switch sd_sfws_ui3_o2c.
+
+      module preisfindung_nachbereiten_pos
+             on chain-request switch sd_sfws_ui3_o2c.
+    endchain.
+
+  endloop.
+
+* Blättern im Table Control erkennen (Groene)
+  module tctrl_u_erf_auftrag_blaettern.
+
+  module vbap_tdp_used_licenses switch oih_excise_duty.
+
+*   Advanced Returns - not handled fcodes from item overview scr
+  module msr_chg_fcode switch ops_sfws_sc_advret1.
+
+* POVR *****************************************************************
+process on value-request.
+  field komv-kschl module komv-kschl_values.
+  field vbap-pstyv module vbap-pstyv_values.
+  field vbap-werks module vbap-werks_values.
+  field vbap-lgort module vbap-lgort_values.
+  field vbap-vstel module vbap-vstel_values.
+  field vbap-posnr
+    module vbap-posnr_values.
+  field vbap-vrkme
+    module vbap-vrkme_values.
+  field vbkd-waktion
+    module vbkd-waktion_values.
+  field vbap-charg
+    module vbap-charg_values.
+  field: vbkd-zterm
+    module vbkd-zterm_values.
+  field: rv45a-mabnr
+    module rv45a_mabnr_values.
+* SD specific F4 for material number
+  field vbap-matnr module vbap_matnr_values.
+
+  FIELD vbap-abgru MODULE vbap_abgru_values.
+
+*  F4 for Requested delivery date
+  field rv45a-prgbz module rv45a_prgbz_values.
+  field rv45a-etdat module rv45a_etdat_values.
+
+* F4 for Advanced Returns related fields
+  field gs_msr_sales_item-inspection_code
+    module inspection_code_help.
+  field gs_msr_sales_item-fu_code
+    module fu_code_help.
+  field vbap-zieme
+    module vbap-zieme_values.
+* Customer Inspection code
+  field gs_msr_sales_item-cust_insp_code
+    module customer_inspection_code_help.
+  field gs_msr_sales_item-nfu_code
+    module nfu_code_help.
+  field msr_s_sales_item-paying_plant
+    module paying_plant_values.
+  field gs_msr_sales_item-replace_unit
+    module replace_unit_values.
+
+*  F4 for Fashion fields
+  field vbap-fsh_season_year  " Switch SFSW_FASHION
+     module fsh_seasons_help.
+  field vbap-fsh_season       " Switch SFSW_FASHION
+     module fsh_seasons_help.
+  field vbap-fsh_collection   " Switch SFSW_FASHION
+     module fsh_seasons_help.
+  field vbap-fsh_theme        " Switch SFSW_FASHION
+     module fsh_seasons_help.
+
+  field vbkd-inco2_l module vbkd-inco2_values.
+  field vbkd-inco3_l module vbkd-inco3_values.
+
+* POHR *****************************************************************
+process on help-request.
+  field rv45a-mabnr  module rv45a_mabnr_help.
