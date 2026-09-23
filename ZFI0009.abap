@@ -1,1107 +1,1501 @@
 *&---------------------------------------------------------------------*
-*& Modulpool         ZFI0009
+*& Report  ZFI0011
 *&
 *&---------------------------------------------------------------------*
-*&
-*&
+*& Javier Ferrándiz
+*& 08/03/2007
 *&---------------------------------------------------------------------*
 
 
-INCLUDE ZFI0009TOP                              .    " global Data 
+REPORT  ZFI0011.
 
-INCLUDE ZFI0009PBO. 
-INCLUDE ZFI0009PAI. 
-INCLUDE ZFI0009FRM.
-INCLUDE ZFI0009CLS.
+INCLUDE ZFI0011TOP.
+INCLUDE ZFI0011EVT.
+INCLUDE ZFI0011PBO.
+INCLUDE ZFI0011PAI.
+INCLUDE ZFI0011F01.
 
-*&---------------------------------------------------------------------*
-*& Include ZFI0009TOP                                        Modulpool        ZFI0002
-*&
-*&---------------------------------------------------------------------*
+**&---------------------------------------------------------------------*
+*&  Include           ZFI0011TOP
+*&------ ---------------------------------------------------------------*
 
-PROGRAM  zfi0009.
-
-TABLES: zfitprov,
-        lfa1,
-        lfb1,
-        t001k,
-        t001w,
-        t059z,
+TABLES: zfit_sol_cliente,
+        kna1,
+        zficonv_cli_pms,
+        nriv,
+        adr6,
+        adrc,
+        knb1,
+        knvi,
+        knvl,
+        tvkbz,
+        tvkbt,
+        tvta,
         t001,
-        zfit_fiscal_fi,
-        zfitprovnav,
-        zfitprovh,
-        zfieprov,
-        t020,
-        t042z,
-        rf02d,                        " Dynpro/Arbeitsfelder Debitor
-        *rf02d.
+        t077d.
 
-CONTROLS t_1 TYPE TABLEVIEW USING SCREEN 9001.
+DATA:    BEGIN OF dynpfields OCCURS 1.
+        INCLUDE STRUCTURE dynpread.
+DATA:    END   OF dynpfields.
+DATA:    BEGIN OF fields OCCURS 3.
+        INCLUDE STRUCTURE help_value.
+DATA:    END OF fields.
+DATA:    BEGIN OF valuetab OCCURS 50,
+           value LIKE dfies-fieldtext,
+         END   OF valuetab.
 
-CONTROLS t_2 TYPE TABLEVIEW USING SCREEN 9002.
+DATA: char1(1)       TYPE c,
+      index          TYPE i,
+      index4          TYPE char4.
 
-DATA lt_t_1 LIKE zfieprov OCCURS 0 WITH HEADER LINE.
+DATA: BEGIN OF t_tblcli OCCURS 0,
+  sel.
+        INCLUDE STRUCTURE zfit_sol_cliente.
+DATA END OF t_tblcli.
+DATA lv_ini TYPE i.
 
-DATA lt_t_2 LIKE zfitprovh OCCURS 0 WITH HEADER LINE.
+DATA: BEGIN OF t_tblcli2 OCCURS 0,
+        solnum TYPE zfit_sol_cliente-solnum,
+        bukrs TYPE zfit_sol_cliente-bukrs,
+        kunnr TYPE zfit_sol_cliente-kunnr,
+        ktokd TYPE zfit_sol_cliente-ktokd,
+*        anred TYPE zfit_sol_cliente-anred,
+        name1 TYPE zfit_sol_cliente-name1,
+        name2 TYPE zfit_sol_cliente-name2,
+        sort1 TYPE zfit_sol_cliente-sort1,
+        direc1 TYPE zfit_sol_cliente-direc1,
+        house_num1 TYPE zfit_sol_cliente-house_num1,
+        cod_post TYPE zfit_sol_cliente-cod_post,
+        poblac1 TYPE zfit_sol_cliente-poblac1,
+        pais TYPE zfit_sol_cliente-pais,
+        region TYPE zfit_sol_cliente-region,
+        langu TYPE zfit_sol_cliente-langu,
+        tel TYPE zfit_sol_cliente-tel,
+        mob_numb TYPE zfit_sol_cliente-mob_numb,
+        fax TYPE zfit_sol_cliente-fax,
+        mail TYPE zfit_sol_cliente-mail,
+        brsch TYPE zfit_sol_cliente-brsch,
+        nif TYPE zfit_sol_cliente-nif,
+        nif2 TYPE zfit_sol_cliente-nif2,
+        stceg TYPE zfit_sol_cliente-stceg,
+        dtams TYPE zfit_sol_cliente-dtams,
+        contac_name1 TYPE zfit_sol_cliente-contac_name1,
+        contac_name2 TYPE zfit_sol_cliente-contac_name2,
+        akont TYPE zfit_sol_cliente-akont,
+        fdgrv TYPE zfit_sol_cliente-fdgrv,
+        altkn TYPE zfit_sol_cliente-altkn,
+        zterm TYPE zfit_sol_cliente-zterm,
+        sol_cred TYPE zfit_sol_cliente-sol_cred,
+        zahls TYPE zfit_sol_cliente-zahls,
+        zwels TYPE zfit_sol_cliente-zwels,
+        mahna TYPE zfit_sol_cliente-mahna,
+        knrma TYPE zfit_sol_cliente-knrma,
+        mansp TYPE zfit_sol_cliente-mansp,
+        busab TYPE zfit_sol_cliente-busab,
+        vrsnr TYPE zfit_sol_cliente-vrsnr,
+        witht TYPE zfit_sol_cliente-witht,
+        wt_withcd TYPE zfit_sol_cliente-wt_withcd,
+        wt_agent TYPE zfit_sol_cliente-wt_agent,
+        wt_agtdf TYPE char10,
+        wt_agtdt TYPE char10,
+        waers TYPE zfit_sol_cliente-waers,
+        sirenha TYPE zfit_sol_cliente-sirenha,
+        direc2 TYPE zfit_sol_cliente-direc2,
+        poblac2 TYPE zfit_sol_cliente-poblac2,
+        cod_post2 TYPE zfit_sol_cliente-cod_post2,
+        pais2 TYPE zfit_sol_cliente-pais2,
+        comnt TYPE zfit_sol_cliente-comnt,
+        modocom TYPE zfit_sol_cliente-modocom,
+        zzncftc TYPE zfit_sol_cliente-zzncftc,
+        mail2 TYPE zfit_sol_cliente-mail2,
+      END OF t_tblcli2.
 
-DATA lv_cod_int LIKE lt_t_1-cod_int.
-CONTROLS     tctrl_zahlwege          TYPE TABLEVIEW USING SCREEN 1215.
-DATA:    ok-code(5)     TYPE c.
-TYPES: BEGIN OF fcode,
-         okcode(5) TYPE c,
-       END OF fcode.
-DATA: zwcnt(2)    TYPE p VALUE 0,     " Zaehler  (Zahlwege)
-      zav_read(1) TYPE c.
-TYPES:   table_of_function_codes TYPE STANDARD TABLE OF fcode.
-DATA:    exctab TYPE table_of_function_codes.
+DATA: BEGIN OF *t_tblcli OCCURS 0,
+  sel.
+        INCLUDE STRUCTURE zfit_sol_cliente.
+DATA END OF *t_tblcli.
 
-DATA: BEGIN OF tabstrip_extab OCCURS 0,
-        okcode LIKE sy-tcode,
-      END OF tabstrip_extab.
-* Datendeklarationen für Betriebestamm
-DATA: kred_call,                      "Kreditor bereits gepuffert
-      debi_call,                "Debitor bereits gepuffert
-      debi_ex_kred,             "Debitor wird aus Kreditor
-      "aktualisiert
-      kred_ex_debi,             "Kreditor wird aus Debitor
-      "aktualisier
-      nriv_externind       LIKE nriv-externind, "Externe Nummernvergabe
-      s_retdeb_type        LIKE rf02d-selkz,
-      s_retkre_type        LIKE rf02d-selkz,
-      debi_ex_kred_no_save.
-DATA: BEGIN OF e042z OCCURS 10,
-        zlsch    LIKE t042z-zlsch,   " Zahlweg
-        text1    LIKE t042z-text1,   " Bedeutung des Zahlwegs
-        xselk(1) TYPE c,             " KZ: X=Zahlweg ausgewaehlt
-      END OF e042z.
-DATA: BEGIN OF a042z OCCURS 10,
-        zlsch    LIKE t042z-zlsch,   " Zahlweg
-        text1    LIKE t042z-text1,   " Bedeutung des Zahlwegs
-        xselk(1) TYPE c,             " KZ: X=Zahlweg ausgewaehlt
-      END OF a042z.
-DATA: refe1(8) TYPE p,
-      refe2(8) TYPE p,
-      tfill    TYPE i,
-      index    TYPE i.
-DATA: loopc         TYPE i,             " Hilfsfeld Listbildblättern
-      save_loopc(2) TYPE p,             " Hilfsfeld Listbildblättern
-      lflag(1)      TYPE c,             " Flag 'Zeilenselektion'
-      lindex        TYPE i,
-      xmerken(1)    TYPE c,
-      save_zwels    LIKE lfb1-zwels.
-* Table control
-DATA:
+RANGES r_bukrs_aut FOR t001-bukrs.
+RANGES r_bukrs_naut FOR t001-bukrs.
 
-  lv_lin          TYPE i,
-  lv_ini          TYPE i,
-  lv_ini_h        TYPE i,
-  lv_cur          TYPE i,
-  lv_cursor       TYPE i,
-  lv_cursor_field TYPE name_komp,
-  lv_sup_d        TYPE i.
+DATA:     g_tblcli_wa     LIKE t_tblcli. "work area
+DATA:     g_tblcli_copied.           "copy flag
 
-DATA lv_ucomm TYPE sy-ucomm.
+CONTROLS: tblcli TYPE TABLEVIEW USING SCREEN 0100.
+CONTROLS: tblcli3 TYPE TABLEVIEW USING SCREEN 0200.
 
-* Verificaciones / Confirmaciones
-DATA:
+DATA ok_code LIKE sy-ucomm.
+DATA sel.
 
-  lv_verif       TYPE i,
-  lv_confirm     TYPE i,
-  lv_verif_t(80).
+DATA  lv_lin TYPE i.
 
 *       Batchinputdata of single transaction
 DATA:   bdcdata LIKE bdcdata    OCCURS 0 WITH HEADER LINE.
 *       messages of call transaction
-
-** Inicio CGR 11/02/2010
-DATA: lv_first(1).
-
-CLEAR: lv_first.
-** Fin CGR CGR 11/02/2010
-
-DATA lv_migr TYPE i.  " 1: MIGRACION FICH 1 / 2:FICH 2
-
-DATA lv_fich LIKE rlgrap-filename.
-
-DATA lt_fich LIKE alsmex_tabline OCCURS 0 WITH HEADER LINE.
-
-DATA: lv_totac      TYPE i,
-      lv_tot        TYPE i,
-      x055_count(3) TYPE p.
-DATA: crs_field LIKE rfcu3-fname,
-      crs_line  LIKE sy-stepl.
+DATA:   messtab LIKE bdcmsgcoll OCCURS 0 WITH HEADER LINE.
+*       error session opened (' ' or 'X')
 DATA: BEGIN OF lt_log OCCURS 0,
-        msgid  LIKE sy-msgid,
-        msgtyp LIKE sy-msgty,
-        msgnr  LIKE sy-msgno,
-        msgv1  LIKE sy-msgv1,
-        msgv2  LIKE sy-msgv2,
-        msgv3  LIKE sy-msgv3,
-        msgv4  LIKE sy-msgv4,
-        lineno LIKE mesg-zeile,
-      END OF lt_log.
+         msgid  LIKE sy-msgid,
+         msgtyp  LIKE sy-msgty,
+         msgnr  LIKE sy-msgno,
+         msgv1  LIKE sy-msgv1,
+         msgv2  LIKE sy-msgv2,
+         msgv3  LIKE sy-msgv3,
+         msgv4  LIKE sy-msgv4,
+         lineno LIKE mesg-zeile,
+       END OF lt_log.
 
-DATA: gv_lifnr LIKE lfa1-lifnr,
-      char1(1) TYPE c.
-FIELD-SYMBOLS: <f1>, <f2>, <nval>, <oval>.
-DATA: BEGIN OF sorttab OCCURS 10,
-        arg(1) TYPE c,             " Sortierfeld
-      END OF sorttab.
+DATA answer TYPE c.
 
-RANGES: r_bukrs_aut FOR t001-bukrs.
-RANGES: r_bukrs_naut FOR t001-bukrs.
+DATA: ano(4),
+      mes(2),
+      dia(2).
+DATA lv_cursor_field TYPE name_komp.
+DATA: lv_subrc TYPE sysubrc.
+DATA:    ok-code(5)     TYPE c,
+         imp TYPE c,
+         mail TYPE c,
+         fx TYPE c.
+DATA: lv_verif TYPE i,
+      lv_verif_t(80).
+FIELD-SYMBOLS: <itab>  TYPE ANY,
+               <field> TYPE ANY.
 
-"DTT - GAP012_BP
-TYPES:
-  BEGIN OF ty_result,
-    success TYPE abap_bool,
-    partner TYPE bu_partner,
-    message TYPE string,
-    return  TYPE bapiretm,
-  END OF ty_result,
-  BEGIN OF ty_context,
-    valid           TYPE abap_bool,
-    message         TYPE string,
-    bp_task         TYPE c LENGTH 1,
-    vendor_task     TYPE c LENGTH 1,
-    address_task    TYPE c LENGTH 1,
-    company_task    TYPE c LENGTH 1,
-    purchasing_task TYPE c LENGTH 1,
-    partner_guid    TYPE but000-partner_guid,
-    address_guid    TYPE but020-address_guid,
-  END OF ty_context.
 
-CONSTANTS:
-  gc_task_insert TYPE c LENGTH 1 VALUE 'I',
-  gc_task_UPDATE TYPE c LENGTH 1 VALUE 'U',
-  gc_task_modify TYPE c LENGTH 1 VALUE 'M',
-  gc_task_delete TYPE c LENGTH 1 VALUE 'D',
-  gc_role_flvn00 TYPE bu_partnerrole VALUE 'FLVN00',
-  gc_role_flvn01 TYPE bu_partnerrole VALUE 'FLVN01',
-  gc_bp_org      TYPE bu_type VALUE '2',
-  gc_rfc_ext_mx  TYPE bptaxnumxl VALUE 'XEXX010101000'.
-"DTT - GAP012_BP
+PARAMETERS: p_new TYPE check USER-COMMAND new.
 
-*--------------------------------------------------------------------*
-*   PANTALLA DE SELECCION
-*--------------------------------------------------------------------*
 SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME.
-  SELECT-OPTIONS so_bukrs FOR zfieprov-bukrs NO INTERVALS OBLIGATORY.
-  SELECT-OPTIONS so_fecha FOR zfieprov-fecha.
-  PARAMETERS so_estad TYPE zzeestalta04.
+* Inicio modif Genis 19.07.2007
+SELECT-OPTIONS so_kunnr FOR zfit_sol_cliente-kunnr NO-DISPLAY.
+SELECT-OPTIONS so_kusap FOR zfit_sol_cliente-kunnrsap.
+* Fin modif Genis 19.07.2007
+SELECT-OPTIONS so_fecha FOR zfit_sol_cliente-fecha.
+SELECT-OPTIONS so_bukrs FOR knb1-bukrs NO INTERVALS.
+SELECT-OPTIONS so_name1 FOR kna1-name1 NO-EXTENSION NO INTERVALS.
+SELECT-OPTIONS so_land1 FOR kna1-land1 NO-EXTENSION NO INTERVALS.
+SELECT-OPTIONS so_nif FOR kna1-stcd1 NO INTERVALS.
+SELECT-OPTIONS so_est FOR zfit_sol_cliente-estado NO-EXTENSION NO INTERVALS DEFAULT 'S'..
+** Modificacion Alex Santamaria - 03.11.2011
+PARAMETER p_ctmode TYPE c DEFAULT 'N' NO-DISPLAY.
+** FIN - Modificacion Alex Santamaria - 03.11.2011
 SELECTION-SCREEN END OF BLOCK b1.
+
+PARAMETERS: p_import TYPE check USER-COMMAND import.
+
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-008.
+PARAMETERS: p_file LIKE rlgrap-filename.
+SELECTION-SCREEN END OF BLOCK b2.
+
+*&---------------------------------------------------------------------*
+*&  Include           ZFI0011EVT
+*&---------------------------------------------------------------------*
+
 **************************** START-OF-SELECTION *************************
 
+AT SELECTION-SCREEN OUTPUT.
+*    SET PF-STATUS '1000'.
+  IF p_new = 'X'.
+    p_new = 'X'.
+    CLEAR t_tblcli.
+    REFRESH t_tblcli.
+    CLEAR lv_ini.
+    CALL SCREEN '0200'.
+    CLEAR p_new.
+  ENDIF.
+  IF p_import = ' '.
+    LOOP AT SCREEN.
+      IF screen-name CS 'P_FILE' OR screen-name CS 'P_BROW' OR
+         screen-name CS 'P_EROW'.
+        screen-input = 0.
+        screen-invisible = 1.
+      ENDIF.
+      MODIFY SCREEN.
+    ENDLOOP.
+  ELSE.
+    LOOP AT SCREEN.
+      IF screen-name CS 'P_FILE' OR screen-name CS 'P_BROW' OR
+         screen-name CS 'P_EROW'.
+        screen-input = 1.
+        screen-invisible = 0.
+      ENDIF.
+      MODIFY SCREEN.
+    ENDLOOP.
+  ENDIF.
 
-START-OF-SELECTION.
 
+AT SELECTION-SCREEN .
 
-  PERFORM llamar_dynpro.
+  if not so_bukrs is INITIAL.
+    set PARAMETER ID 'BUK' FIELD so_bukrs-low.
+  ENDIF.
+  CASE sy-ucomm.
 
+    WHEN 'ONLI'.
+*leemos las solicitudes
+      CLEAR p_new.
+      IF p_import = ' '.
+        IF so_bukrs IS INITIAL.
+          SET CURSOR FIELD 'SO_BUKRS-LOW'.
+          MESSAGE e055(00).
+        ENDIF.
+        PERFORM extraer_datos.
+        PERFORM llamar_dynpro.
+      ELSE.
+        IF p_file IS INITIAL.
+          SET CURSOR FIELD 'P_FILE'.
+          MESSAGE e055(00).
+        ENDIF.
+        PERFORM import_excel.
+        PERFORM llamar_dynpro.
+      ENDIF.
+    WHEN 'NEW'.
+
+    WHEN 'BACK' OR 'LEAV' OR 'CANCEL'.
+      LEAVE TO SCREEN 0.
+
+  ENDCASE.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+  CALL FUNCTION 'WS_FILENAME_GET'
+    EXPORTING
+      def_filename     = ' '
+      def_path         = 'C:\'
+      mask             = ',*.xls,*.xls.'
+      mode             = 'O'
+      title            = text-025 "'Seleccione un archivo'
+    IMPORTING
+      filename         = p_file
+      rc               = lv_subrc
+    EXCEPTIONS
+      inv_winsys       = 1
+      no_batch         = 2
+      selection_cancel = 3
+      selection_error  = 4
+      OTHERS           = 5.
+
+   *&---------------------------------------------------------------------*
+*&  Include           ZFI0011PBO
+*&---------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*&      Module  tblcli_move  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
 *----------------------------------------------------------------------*
-***INCLUDE ZFI0002PBO .
+MODULE tblcli_move OUTPUT.
+
+  DATA: wa_tc_tabla TYPE  cxtab_column.
+
+  SELECT SINGLE ddtext FROM dd07v INTO g_tblcli_wa-estadot
+                        WHERE domname = 'ZZDCLIEST'
+                          AND ddlanguage = sy-langu
+                          AND domvalue_l = g_tblcli_wa-estado.
+
+  SELECT SINGLE butxt FROM t001 INTO g_tblcli_wa-butxt
+                     WHERE bukrs = g_tblcli_wa-bukrs.
+
+  IF g_tblcli_wa-sort1 IS INITIAL.
+    g_tblcli_wa-sort1 = g_tblcli_wa-name1.
+  ENDIF.
+
+  MOVE-CORRESPONDING g_tblcli_wa TO t_tblcli.
+  LOOP AT SCREEN.
+    IF screen-name = 'G_TBLCLI_WA-SOLNUM'
+*    OR screen-name = 'G_TBLCLI_WA-KUNNR'
+    OR screen-name = 'G_TBLCLI_WA-FECHA'
+    OR screen-name = 'G_TBLCLI_WA-HORA'
+    OR screen-name = 'G_TBLCLI_WA-BUKRS'
+    OR screen-name = 'G_TBLCLI_WA-BUTXT'
+    OR screen-name = 'G_TBLCLI_WA-ESTADOT'
+    OR screen-name = 'G_TBLCLI_WA-VBUND' AND
+      ( g_tblcli_wa-ktokd = '1020' OR g_tblcli_wa-ktokd = '1910' ).
+*      OR
+*       screen-name = 'G_TBLCLI_WA-KUNNRSAP' OR
+*       screen-name = 'G_TBLCLI_WA-KTOKD'.
+      screen-input = ' '.
+      MODIFY SCREEN.
+    ENDIF.
+
+    IF screen-name = 'G_TBLCLI_WA-BUSAB' OR
+       screen-name = 'G_TBLCLI_WA-BRSCH'.
+      screen-invisible = 0.
+      MODIFY SCREEN.
+    ENDIF.
+
+  ENDLOOP.
+
+  IF NOT p_import IS INITIAL.
+    LOOP AT tblcli-cols INTO wa_tc_tabla.
+      IF
+*        wa_tc_tabla-screen-name = 'G_TBLCLI_WA-KUNNRSAP' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-BZIRK' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-VKBUR' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-VKGRP' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-KDGRP' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-WAERSD' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-KONDA' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-PVKSM' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-VSORT' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-KTGRD' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-INCO1' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-MRNKZ' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-PERFK' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-PERRL' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-BOKRE' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-PRFRE' OR
+         wa_tc_tabla-screen-name = 'G_TBLCLI_WA-ESTADOT'.
+        wa_tc_tabla-invisible = 1.
+        MODIFY tblcli-cols FROM wa_tc_tabla.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+
+  IF g_tblcli_wa-estado = 'R' OR g_tblcli_wa-estado = 'V'
+     OR g_tblcli_wa-estado = 'A'.
+    LOOP AT SCREEN.
+      screen-input = 0.
+      IF screen-name = 'G_TBLCLI_WA-SEL' AND g_tblcli_wa-estado = 'A'.
+        screen-input = 1.
+      ENDIF.
+      MODIFY SCREEN.
+    ENDLOOP.
+  ENDIF.
+  LOOP AT tblcli-cols INTO wa_tc_tabla.
+    IF wa_tc_tabla-screen-name = 'G_TBLCLI_WA-NIF2' OR
+       wa_tc_tabla-screen-name = 'G_TBLCLI_WA-STCEG'.
+      wa_tc_tabla-invisible = 'X'.
+      MODIFY tblcli-cols FROM wa_tc_tabla.
+    ENDIF.
+
+    IF wa_tc_tabla-screen-name = 'G_TBLCLI_WA-BUSAB' OR
+       wa_tc_tabla-screen-name = 'G_TBLCLI_WA-BRSCH'.
+      CLEAR wa_tc_tabla-invisible.
+      MODIFY tblcli-cols FROM wa_tc_tabla.
+    ENDIF.
+
+*** INICIO MODIFICACIÓN EMG 11/09/2008
+    IF sy-tabix NE wa_tc_tabla-index.
+      wa_tc_tabla-index = sy-tabix.
+      MODIFY tblcli-cols FROM wa_tc_tabla.
+    ENDIF.
+*** FIN MODIFICACIÓN EMG 11/09/2008
+  ENDLOOP.
+
+ENDMODULE.                    "TBLCLI_MOVE OUTPUT
+
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
 *----------------------------------------------------------------------*
+MODULE status_0100 OUTPUT.
+  SET PF-STATUS '0100'.
+  SET TITLEBAR 'ZFI0011'.
+ENDMODULE.                 " STATUS_0100  OUTPUT
+
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0200  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE status_0200 OUTPUT.
+  SET PF-STATUS '0200'.
+  SET TITLEBAR 'ZFI0011'.
+ENDMODULE.                 " STATUS_0100  OUTPUT
+
+*&---------------------------------------------------------------------*
+*&      Module  init  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE init OUTPUT.
+  DESCRIBE TABLE t_tblcli LINES lv_lin.
+
+  tblcli-lines = lv_lin.
+
+  IF NOT lv_cursor_field IS INITIAL.
+    SET CURSOR FIELD lv_cursor_field LINE lv_verif.
+    CLEAR lv_cursor_field.
+  ENDIF.
+ENDMODULE.                 " init  OUTPUT
+
 *&---------------------------------------------------------------------*
 *&      Module  STATUS_9001  OUTPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
 MODULE status_9001 OUTPUT.
-
-  SET PF-STATUS '9001'.
-  SET TITLEBAR '9001'.
-
+  SET PF-STATUS 'MODOCOM'.
+*  SET TITLEBAR 'xxx'.
 ENDMODULE.                 " STATUS_9001  OUTPUT
+
 *&---------------------------------------------------------------------*
-*&      Module  INIT_PROCESO  OUTPUT
+*&      Module  tblcli_move2  OUTPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-MODULE init_proceso OUTPUT.
+MODULE tblcli_move3 OUTPUT.
 
-  IF lv_ini = 0.
 
-    IF syst-tcode = 'ZFI04_'.
+  SELECT SINGLE ddtext FROM dd07v INTO g_tblcli_wa-estadot
+                        WHERE domname = 'ZZDCLIEST'
+                          AND ddlanguage = sy-langu
+                          AND domvalue_l = g_tblcli_wa-estado.
+  SELECT SINGLE butxt FROM t001 INTO g_tblcli_wa-butxt
+                     WHERE bukrs = g_tblcli_wa-bukrs.
 
-      lv_migr = 1.
-
+  g_tblcli_wa-hora = sy-uzeit.
+  g_tblcli_wa-fecha = sy-datum.
+  IF g_tblcli_wa-sort1 IS INITIAL.
+    g_tblcli_wa-sort1 = g_tblcli_wa-name1.
+  ENDIF.
+  MOVE-CORRESPONDING g_tblcli_wa TO t_tblcli.
+  LOOP AT SCREEN.
+    IF screen-name = 'G_TBLCLI_WA-SOLNUM' OR
+       screen-name = 'G_TBLCLI_WA-KUNNR' OR
+      screen-name = 'G_TBLCLI_WA-FECHA' OR
+      screen-name = 'G_TBLCLI_WA-HORA' OR
+*       screen-name = 'G_TBLCLI_WA-BUKRS' OR
+      screen-name = 'G_TBLCLI_WA-BUTXT' OR
+       screen-name = 'G_TBLCLI_WA-ESTADOT' OR
+       screen-name = 'G_TBLCLI_WA-VBUND' AND
+       ( g_tblcli_wa-ktokd = '1020' OR g_tblcli_wa-ktokd = '1910' ).
+*      OR
+*       screen-name = 'G_TBLCLI_WA-KUNNRSAP' OR
+*       screen-name = 'G_TBLCLI_WA-KTOKD'.
+      screen-input = ' '.
+      MODIFY SCREEN.
     ENDIF.
+  ENDLOOP.
 
-    IF lv_migr IS INITIAL.
-      PERFORM acceso_tablas.
-      PERFORM carga_fun_dyn.
-    ELSE.
-      PERFORM acceso_tablas_m.
-      PERFORM carga_migr_dyn.
+
+  IF g_tblcli_wa-estado = 'R' OR g_tblcli_wa-estado = 'V'
+     OR g_tblcli_wa-estado = 'A'.
+    LOOP AT SCREEN.
+      screen-input = ''.
+      MODIFY SCREEN.
+    ENDLOOP.
+  ENDIF.
+  LOOP AT tblcli3-cols INTO wa_tc_tabla.
+    IF wa_tc_tabla-screen-name = 'G_TBLCLI_WA-NIF2' OR
+       wa_tc_tabla-screen-name = 'G_TBLCLI_WA-STCEG'.
+      wa_tc_tabla-invisible = 1.
+      MODIFY tblcli3-cols FROM wa_tc_tabla.
     ENDIF.
+  ENDLOOP.
 
-    lv_cursor = 1.
+ENDMODULE.                 " tblcli_move2  OUTPUT
+
+*&---------------------------------------------------------------------*
+*&      Module  init3  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE init3 OUTPUT.
+
+  IF lv_ini IS INITIAL.
+    CLEAR t_tblcli.
+    APPEND t_tblcli.
     lv_ini = 1.
-
   ENDIF.
 
-  IF NOT lv_sup_d IS INITIAL.
+  DESCRIBE TABLE t_tblcli LINES lv_lin.
 
-    SUPPRESS DIALOG.
-    CLEAR lv_sup_d.
+  tblcli3-lines = lv_lin.
 
-  ENDIF.
-
-  DESCRIBE TABLE lt_t_1 LINES lv_lin.
-
-  t_1-lines = lv_lin.
-
-  lv_cur = 1.
-
-  IF NOT lv_cursor IS INITIAL AND lv_cursor_field IS INITIAL.
-
-    CLEAR lv_cursor.
-    SET CURSOR 1 1.
-
-  ENDIF.
-
-  IF NOT lv_cursor IS INITIAL AND NOT lv_cursor_field IS INITIAL.
-
+  IF NOT lv_cursor_field IS INITIAL.
     SET CURSOR FIELD lv_cursor_field LINE lv_verif.
-    CLEAR lv_cursor.
     CLEAR lv_cursor_field.
-
   ENDIF.
 
-ENDMODULE.                 " INIT_PROCESO  OUTPUT
+ENDMODULE.                 " init3  OUTPUT
+
+*----------------------------------------------------------------------*
+***INCLUDE ZFI0011PAI .
+*------ ----------------------------------------------------------------*
 *&---------------------------------------------------------------------*
-*&      Module  SET_VALUE  OUTPUT
+*&      Module  USER_COMMAND_0100  INPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-MODULE set_value OUTPUT.
+MODULE user_command_0100 INPUT.
+  CASE ok_code.
 
-  PERFORM derivar_akont CHANGING zfieprov.
+    WHEN 'SAVE'.
+      PERFORM grabar_sel.
 
-  IF t_1-current_line GT 0.
-    MODIFY lt_t_1 FROM zfieprov INDEX t_1-current_line
-    TRANSPORTING akont.
-  ENDIF.
-  LOOP AT SCREEN.
-    IF screen-name = 'ZFIEPROV-AKONT'.
-      screen-input = '0'.
-      MODIFY SCREEN.
-    ENDIF.
-  ENDLOOP.
+    WHEN 'RECHAZAR'.
+      PERFORM rechazar.
 
-  IF zfieprov-estado IS INITIAL .
-    LOOP AT SCREEN.
-      screen-input    = '0'.
-      MODIFY SCREEN.
-    ENDLOOP.
-  ENDIF.
+    WHEN 'RECHAZARM'.
+      PERFORM rechazarm.
 
+    WHEN 'SEL'.
+      LOOP AT t_tblcli.
+        t_tblcli-sel = 'X'.
+        MODIFY t_tblcli.
+      ENDLOOP.
 
+    WHEN 'DESEL'.
+      LOOP AT t_tblcli.
+        t_tblcli-sel = ' '.
+        MODIFY t_tblcli.
+      ENDLOOP.
+    WHEN 'CREA'.
+      lv_verif = 0.
 
-ENDMODULE.                 " SET_VALUE  OUTPUT
-*&---------------------------------------------------------------------*
-*&      Module  STATUS_9002  OUTPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-MODULE status_9002 OUTPUT.
+      PERFORM verif.
+      IF NOT lv_verif IS INITIAL.   " Linea error
 
-  SET PF-STATUS '9002'.
-  SET TITLEBAR '9002'.
+        PERFORM crear_message.
 
-ENDMODULE.                 " STATUS_9002  OUTPUT
-*&---------------------------------------------------------------------*
-*&      Module  INIT_PROCESO_9002  OUTPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-MODULE init_proceso_9002 OUTPUT.
-
-  IF lv_ini_h = 0.
-
-    PERFORM acceso_tablas_hist.
-
-    DESCRIBE TABLE lt_t_2 LINES lv_lin.
-
-    t_2-lines = lv_lin.
-
-    lv_cur = 1.
-
-    lv_ini_h = 1.
-
-  ENDIF.
-
-ENDMODULE.                 " INIT_PROCESO_9002  OUTPUT
-*&---------------------------------------------------------------------*
-*&      Module  SET_VALUE_9002  OUTPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-MODULE set_value_9002 OUTPUT.
-
-  LOOP AT SCREEN.
-
-    screen-input    = '0'.
-    MODIFY SCREEN.
-
-  ENDLOOP.
-
-ENDMODULE.                 " SET_VALUE_9002  OUTPUT
-*&---------------------------------------------------------------------*
-*&      Module  t042z_lesen  OUTPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-MODULE t042z_lesen OUTPUT.
-
-  DESCRIBE TABLE a042z LINES refe1.
-  DESCRIBE TABLE e042z LINES refe2.
-
-  IF  refe1 = 0
-  AND refe2 = 0.
-    REFRESH: a042z, e042z.
-    SELECT * FROM t042z WHERE land1 = 'ES'
-                           AND   zlsch NE space.
-      IF t042z-xeinz = 'X'.
-        CLEAR e042z.
-        e042z-zlsch = t042z-zlsch.
-        e042z-text1 = t042z-text1.
-        APPEND e042z.
-
-*------- Zahlweg fuer Zahlungsausgaenge --------------------------------
       ELSE.
-        CLEAR a042z.
-        a042z-zlsch = t042z-zlsch.
-        a042z-text1 = t042z-text1.
-        APPEND a042z.
+        PERFORM call_batch.
       ENDIF.
+    WHEN 'DESARCHIVA'.
+      perform desarchivar.
+  ENDCASE.
+  CLEAR ok_code.
+ENDMODULE.                 " USER_COMMAND_0100  INPUT'
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0200  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE user_command_0200 INPUT.
+  CASE ok_code.
+
+    WHEN 'SEL'.
+      LOOP AT t_tblcli.
+        t_tblcli-sel = 'X'.
+        MODIFY t_tblcli.
+      ENDLOOP.
+
+    WHEN 'DESEL'.
+      LOOP AT t_tblcli.
+        t_tblcli-sel = ' '.
+        MODIFY t_tblcli.
+      ENDLOOP.
+    WHEN 'NUEVO'.
+      PERFORM nuevo.
+    WHEN 'CREA'.
+      lv_verif = 0.
+
+      PERFORM verif.
+      IF NOT lv_verif IS INITIAL.   " Linea error
+
+        PERFORM crear_message.
+
+      ELSE.
+        PERFORM call_batch.
+*        if sy-subrc = 0.
+*          loop at t_tblcli where sel = 'X'.
+*            delete t_tblcli.
+*          endloop.
+*        endif.
+      ENDIF.
+  ENDCASE.
+
+  CLEAR ok_code.
+ENDMODULE.                 " USER_COMMAND_0200  INPUT'
+*&---------------------------------------------------------------------*
+*&      Module  tratar_datos  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE tratar_datos INPUT.
+
+  MODIFY t_tblcli FROM g_tblcli_wa INDEX tblcli-current_line.
+
+ENDMODULE.                 " tratar_datos  INPUT
+*----------------------------------------------------------------------*
+*  MODULE tratar_datos2 INPUT
+*----------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+MODULE tratar_datos2 INPUT.
+  IF NOT g_tblcli_wa-waers IS INITIAL.
+    SELECT SINGLE waers
+      FROM tcurc
+      INTO knb1-waers
+      WHERE waers = g_tblcli_wa-waers.
+
+    IF sy-subrc <> 0.
+      MESSAGE e216(zfi01).
+*   No existe la moneda
+    ENDIF.
+  ENDIF.
+
+  MODIFY t_tblcli FROM g_tblcli_wa INDEX tblcli3-current_line.
+
+ENDMODULE.                 " tratar_datos  INPUT
+*&---------------------------------------------------------------------*
+*&      Module  EXIT_COMMAND_0100  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE exit_command_0100 INPUT.
+  LEAVE TO SCREEN 0.
+ENDMODULE.                 " EXIT_COMMAND_9001  INPUT
+*&---------------------------------------------------------------------*
+*&      Module  EXIT_COMMAND_0200  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE exit_command_0200 INPUT.
+  LEAVE TO SCREEN 0.
+ENDMODULE.                 " EXIT_COMMAND_9001  INPUT
+*&---------------------------------------------------------------------*
+*&      Module  HELP_KNB1-AKONT  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE help_knb1-akont INPUT.
+
+* Lokale Daten.
+  DATA akont LIKE knb1-akont.
+  IF t_tblcli-bukrs IS INITIAL.
+    SET CURSOR FIELD t_tblcli-bukrs.
+    MESSAGE i168(zfi01).
+    EXIT.
+  ENDIF.
+* Inhalt des Feldes 'KNB1-AKONT' vom Dynpro besorgen.
+  CLEAR   dynpfields.
+  REFRESH dynpfields.
+  dynpfields-fieldname = 'T_TBLCLI-AKONT'.
+  APPEND dynpfields.
+  CALL FUNCTION 'DYNP_VALUES_READ'
+    EXPORTING
+      dyname     = 'SAPMF02D'
+      dynumb     = '0210'
+    TABLES
+      dynpfields = dynpfields
+    EXCEPTIONS
+      OTHERS     = 4.
+  IF sy-subrc = 0.
+    READ TABLE dynpfields INDEX 1.
+    akont = dynpfields-fieldvalue.
+    TRANSLATE akont TO UPPER CASE.                       "#EC TRANSLANG
+  ENDIF.
+
+  LOOP AT SCREEN.
+    CHECK screen-name = 'T_TBLCLI-AKONT'.
+    IF screen-input = '0'.
+      char1 = 'X'.
+    ELSE.
+      char1 = space.
+    ENDIF.
+    EXIT.
+  ENDLOOP.
+
+* Abstimmkonten anzeigen.
+  CALL FUNCTION 'FI_F4_AKONT'
+    EXPORTING
+      i_bukrs = t_tblcli-bukrs
+      i_mitkz = 'D'
+      i_akont = akont
+      i_xshow = char1
+    IMPORTING
+      e_akont = *t_tblcli-akont.
+  IF NOT *t_tblcli-akont IS INITIAL.
+    g_tblcli_wa-akont = *t_tblcli-akont.
+  ENDIF.
+
+ENDMODULE.                 " HELP_KNB1-AKONT  INPUT
+*&---------------------------------------------------------------------*
+*&      Module  help_knvv-vkbur  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE help_knvv-vkbur INPUT.
+  DATA: lv_vkorg TYPE vkorg,
+         lv_vtweg TYPE vtweg,
+         lv_spart TYPE spart.
+  DATA: BEGIN OF inttab OCCURS 10,
+          vkbur LIKE tvkbt-vkbur,
+          bezei LIKE tvkbt-bezei.
+  DATA: END OF inttab.
+
+*------- FIELDS füllen -------------------------------------------------
+  CLEAR   fields.
+  REFRESH fields.
+  fields-tabname    = 'TVKBT'. fields-fieldname  = 'VKBUR'.
+  fields-selectflag = 'X'.     APPEND fields.
+  fields-tabname    = 'TVKBT'. fields-fieldname  = 'BEZEI'.
+  fields-selectflag = ' '.     APPEND fields.
+
+*------- VALUETAB füllen -----------------------------------------------
+  REFRESH inttab.
+  SELECT SINGLE vkorg  INTO lv_vkorg FROM tvko WHERE bukrs = t_tblcli-bukrs.
+  SELECT SINGLE vtweg spart INTO (lv_vtweg, lv_spart) FROM tvta WHERE vkorg = lv_vkorg.
+  SELECT * FROM tvkbz WHERE vkorg = lv_vkorg
+                      AND   vtweg = lv_vtweg
+                      AND   spart = lv_spart.
+    LOOP AT inttab WHERE vkbur = tvkbz-vkbur.
+      EXIT.
+    ENDLOOP.
+    CHECK NOT sy-subrc IS INITIAL.
+    SELECT * FROM tvkbt WHERE spras = sy-langu
+                        AND   vkbur = tvkbz-vkbur.
+      MOVE-CORRESPONDING tvkbt TO inttab.
+      APPEND inttab.
     ENDSELECT.
-  ENDIF.
-  LOOP AT a042z.
-    CLEAR a042z-xselk.
-    IF zfieprov-zwels CS a042z-zlsch.
-      a042z-xselk = 'X'.
-      sorttab-arg = a042z-zlsch.       " uh 08.09.98
-      APPEND sorttab.                  " uh 08.09.98
-    ELSE.
-      a042z-xselk = space.
-    ENDIF.
-    MODIFY a042z.
-  ENDLOOP.
-  LOOP AT e042z.
-    CLEAR e042z-xselk.
-    IF zfieprov-zwels CS e042z-zlsch.
-      e042z-xselk = 'X'.
-      sorttab-arg = e042z-zlsch.       " uh 08.09.98
-      APPEND sorttab.                  " uh 08.09.98
-    ELSE.
-      e042z-xselk = space.
-    ENDIF.
-    MODIFY e042z.
+  ENDSELECT.
+  SELECT * FROM tvta WHERE vkorg = lv_vkorg
+                     AND   vtwku = lv_vtweg
+                     AND   spaku = lv_spart.
+    SELECT * FROM tvkbz WHERE vkorg = lv_vkorg
+                        AND   vtweg = tvta-vtweg
+                        AND   spart = tvta-spart.
+      LOOP AT inttab WHERE vkbur = tvkbz-vkbur.
+        EXIT.
+      ENDLOOP.
+      CHECK NOT sy-subrc IS INITIAL.
+      SELECT * FROM tvkbt WHERE spras = sy-langu
+                          AND   vkbur = tvkbz-vkbur.
+        MOVE-CORRESPONDING tvkbt TO inttab.
+        APPEND inttab.
+      ENDSELECT.
+    ENDSELECT.
+  ENDSELECT.
+  CLEAR   valuetab.
+  REFRESH valuetab.
+  LOOP AT inttab.
+    valuetab-value = inttab-vkbur. APPEND valuetab.
+    valuetab-value = inttab-bezei. APPEND valuetab.
   ENDLOOP.
 
-*------ Ausgangszustand bei den Zahlwegen merken -----------------------
-  IF  t020-aktyp <> 'A'
-  AND xmerken  = 'X'.
-    save_zwels = zfieprov-zwels.
-    CLEAR xmerken.
-  ENDIF.
-ENDMODULE.                 " t042z_lesen  OUTPUT
+*------ Status (Anzeigen, Ändern, Hinzufügen) ermitteln ----------------
+  LOOP AT SCREEN.
+    CHECK screen-name = 'T_TBLCLI-VKBUR'.
+    IF screen-input = '0'.
+      char1 = 'X'.
+    ELSE.
+      char1 = space.
+    ENDIF.
+    EXIT.
+  ENDLOOP.
+
+*------ Eingabemöglichkeiten anzeigen ----------------------------------
+  CALL FUNCTION 'HELP_VALUES_GET_WITH_TABLE'
+    EXPORTING
+      display      = char1
+      fieldname    = 'VKBUR'
+      tabname      = 'KNVV'
+    IMPORTING
+      select_value = g_tblcli_wa-vkbur
+    TABLES
+      fields       = fields
+      valuetab     = valuetab.
+
+ENDMODULE.                 " help_knvv-vkbur  INPUT
 *&---------------------------------------------------------------------*
-*&      Module  zahlweg_anzeigen  OUTPUT
+*&      Module  TRATAR_DATOS_modocom  INPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-MODULE zahlweg_anzeigen OUTPUT.
-* Anzahl der dargestellten Zeilen des Table Controls sichern.
-  loopc = sy-loopc.                    " uh, 07.09.98
-
-*-----Zeilenzähler für Blätterfunktion initialisieren ----------------*
-  lindex = index + sy-stepl - 1.       " uh, 07.09.98
-
-*------- Zahlweg fuer Zahlungsausgaenge anzeigen -----------------------
-* READ TABLE a042z INDEX sy-stepl.       " uh, 07.09.98
-  READ TABLE a042z INDEX lindex.       " uh, 07.09.98
-
-  IF sy-subrc NE 0.
-    LOOP AT SCREEN.
-      IF screen-name = 'RF02D-XASEL'
-      OR screen-name = 'RF02D-AZSCH'
-      OR screen-name = 'RF02D-AZTXT'.
-        screen-input     = 0.
-        screen-output    = 0.
-        screen-invisible = 1.
+MODULE tratar_datos_modocom INPUT.
+  CASE ok-code.
+    WHEN 'OK'.
+      IF imp = 'X' AND mail IS INITIAL AND fx IS INITIAL.
+        g_tblcli_wa-modocom = 'I'.
+      ELSEIF imp = 'X' AND mail = 'X' AND fx IS INITIAL.
+        g_tblcli_wa-modocom = 'IE'.
+      ELSEIF imp = 'X' AND mail = 'X' AND fx = 'X'.
+        g_tblcli_wa-modocom = 'IEF'.
+      ELSEIF imp = 'X' AND mail IS INITIAL AND fx = 'X'.
+        g_tblcli_wa-modocom = 'IF'.
+      ELSEIF imp  IS INITIAL AND mail = 'X' AND fx = 'X'.
+        g_tblcli_wa-modocom = 'EF'.
+      ELSEIF imp IS INITIAL AND mail = 'X' AND fx IS INITIAL.
+        g_tblcli_wa-modocom = 'E'.
+      ELSEIF imp IS INITIAL AND mail IS INITIAL AND fx = 'X'.
+        g_tblcli_wa-modocom = 'F'.
       ENDIF.
-      MODIFY SCREEN.
-    ENDLOOP.
-  ELSE.
-    rf02d-xasel = a042z-xselk.
-    rf02d-azsch = a042z-zlsch.
-    rf02d-aztxt = a042z-text1.
-  ENDIF.
-
-*------- Zahlweg fuer Zahlungseingaenge anzeigen -----------------------
-*  READ TABLE e042z INDEX sy-stepl.            " uh, 07.09.98
-  READ TABLE e042z INDEX lindex.       " uh, 07.09.98
-  IF sy-subrc NE 0.
-    LOOP AT SCREEN.
-      IF screen-name = 'RF02D-XESEL'
-      OR screen-name = 'RF02D-EZSCH'
-      OR screen-name = 'RF02D-EZTXT'.
-        screen-input     = 0.
-        screen-output    = 0.
-        screen-invisible = 1.
-      ENDIF.
-      MODIFY SCREEN.
-    ENDLOOP.
-  ELSE.
-    rf02d-xesel = e042z-xselk.
-    rf02d-ezsch = e042z-zlsch.
-    rf02d-eztxt = e042z-text1.
-  ENDIF.
-ENDMODULE.                 " zahlweg_anzeigen  OUTPUT
+      LEAVE SCREEN.
+  ENDCASE.
+ENDMODULE.                 " TRATAR_DATOS_modocom  INPUT
 *&---------------------------------------------------------------------*
-*&      Module  TCTRL_ZAHLWEGE_INIT  OUTPUT
+*&      Module  help_knb1-modocom  INPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-MODULE tctrl_zahlwege_init OUTPUT.
-* Zeilenanzahl der Darzustellenden Tabelle in Table Control eintragen.
-  DESCRIBE TABLE a042z LINES refe1.
-  DESCRIBE TABLE e042z LINES refe2.
-
-  IF refe1 GE refe2.
-    tfill = refe1.
-  ELSE.
-    tfill = refe2.
-  ENDIF.
-
-  tctrl_zahlwege-lines = tfill.
-
-* Oberste dargestellte Tabellenzeile festlegen.
-  IF index LE 0.
-    index = 1.
-  ENDIF.
-
-  tctrl_zahlwege-top_line = index.
-ENDMODULE.                 " TCTRL_ZAHLWEGE_INIT  OUTPUT
+MODULE help_knb1-modocom INPUT.
+  CALL SCREEN 9001 STARTING AT 03 01.
+ENDMODULE.                 " help_knb1-modocom  INPUT
 *&---------------------------------------------------------------------*
-*&      Module  PFSTATUS_D1215  OUTPUT
+*&      Module  check_cliente_vs_soc  INPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-MODULE pfstatus_d1215 OUTPUT.
-  CLEAR ok-code.
-  IF t020-aktyp = 'A'.
-*   set pf-status 'W'.                                     "MDT 28.12.98
-    PERFORM set_pf_status TABLES exctab"MDT 28.12.98
-                          USING 'W' ' '.                   "MDT 28.12.98
-  ELSE.
-*   set pf-status '215Z'.                                  "MDT 28.12.98
-    PERFORM set_pf_status TABLES exctab"MDT 28.12.98
-                          USING '215Z' ' '.                "MDT 28.12.98
-  ENDIF.
-ENDMODULE.                 " PFSTATUS_D1215  OUTPUT  
-
-*----------------------------------------------------------------------*
-***INCLUDE ZFI0002PAI .
-*----------------------------------------------------------------------*
+MODULE check_cliente_vs_soc INPUT.
+  PERFORM f_check_kunnr_vs_bukrs.
+ENDMODULE.                 " check_cliente_vs_soc  INPUT
 *&---------------------------------------------------------------------*
-*&      Module  USER_COMMAND_9001  INPUT
+*&      Module  check_waers  INPUT
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-module USER_COMMAND_9001 input.
+MODULE check_waers INPUT.
+  IF NOT g_tblcli_wa-waers IS INITIAL.
+    SELECT SINGLE waers
+      FROM tcurc
+      INTO knb1-waers
+      WHERE waers = g_tblcli_wa-waers.
 
-  LV_UCOMM = SY-UCOMM.
-
-  CASE LV_UCOMM.
-
-    WHEN 'STRT'.  " Aprobar
-
-      PERFORM TR_APROB USING l_index CHANGING l_aprob.
-      PERFORM TR_DESMARCAR.
-
-    WHEN 'RECH'.   " Rechazar
-
-      PERFORM TR_RECH.
-      PERFORM TR_DESMARCAR.
-
-    WHEN 'PRE'.   " Grabar Pre
-
-      PERFORM TR_GRABAR.
-      PERFORM TR_DESMARCAR.
-
-    WHEN 'MALL'.  " Marcar
-
-      PERFORM TR_MARCAR.
-
-    WHEN 'RALL'.  " Desmarcar
-
-      PERFORM TR_DESMARCAR.
-
-    WHEN 'CONS'.  " Consulta
-
-      PERFORM TR_CONS.
-
-    WHEN 'REFR'.
-
-      PERFORM TR_REFR.
-
-    WHEN 'HIST'.  " Historial
-
-      PERFORM TR_HIST.
-      PERFORM TR_DESMARCAR.
-
-    WHEN 'ACRE'.  " Lista acreedores
-
-      PERFORM TR_ACRE.
-
-    WHEN 'MIG1'.  " Migración FICH 1 / Ctrl-F1
-
-      PERFORM TR_MIGR_1.
-
-    WHEN 'MIG2'.  " Migración FICH 2 / Ctrl-F2
-
-      PERFORM TR_MIGR_2.
-
-   ENDCASE.
-
-endmodule.                 " USER_COMMAND_9001  INPUT
-*&---------------------------------------------------------------------*
-*&      Module  EXIT_COMMAND_9001  INPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-module EXIT_COMMAND_9001 input.
-
-  LEAVE PROGRAM.
-
-endmodule.                 " EXIT_COMMAND_9001  INPUT
-*&---------------------------------------------------------------------*
-*&      Module  TRATAR_DATOS  INPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-module TRATAR_DATOS input.
-
-  MODIFY LT_T_1 FROM ZFIEPROV INDEX T_1-CURRENT_LINE.
-
-endmodule.                 " TRATAR_DATOS  INPUT
-*&---------------------------------------------------------------------*
-*&      Module  ZWELS  INPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-module ZWELS input.
- PERFORM HELP_KNB1_ZWELS.
-endmodule.                 " ZWELS  INPUT
-*&---------------------------------------------------------------------*
-*&      Module  zahlweg_markieren  INPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-module zahlweg_markieren input.
-  CHECK T020-AKTYP NE 'A'.
-  CHECK OK-CODE = 'MARK'.
-
-  GET CURSOR LINE CRS_LINE FIELD CRS_FIELD.
-
-  IF CRS_LINE = SY-STEPL.
-    IF  CRS_FIELD(11) NE 'RF02D-XASEL'
-    AND CRS_FIELD(11) NE 'RF02D-XESEL'.
-      CLEAR: OK-CODE, CRS_LINE, CRS_FIELD.
+    IF sy-subrc <> 0.
+      MESSAGE e216(zfi01).
+*   No existe la moneda
     ENDIF.
-    ASSIGN (CRS_FIELD) TO <F1>.
-    IF <F1> NE 'X'.
-      <F1> = 'X'.
+
+  ENDIF.
+
+ENDMODULE.                 " check_waers  INPUT
+*&---------------------------------------------------------------------*
+*&      Module  CHECK_NIF_NIF3  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE check_nif_nif3 INPUT.
+
+  IF g_tblcli_wa-sel = 'X'.
+
+    IF g_tblcli_wa-nif = 'XEXX010101000' AND
+       g_tblcli_wa-nif3 IS INITIAL.
+
+      MESSAGE e002(zfi).
+
+    ENDIF.
+
+  ENDIF.
+
+ENDMODULE.
+
+*----------------------------------------------------------------------*
+***INCLUDE ZFI0011F01 .
+*----------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*&      Form  extraer_datos
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM extraer_datos.
+
+  CLEAR: zfit_sol_cliente,t_tblcli, nriv, kna1.
+  REFRESH t_tblcli.
+  CLEAR: r_bukrs_aut, r_bukrs_naut.
+  REFRESH: r_bukrs_aut, r_bukrs_naut.
+  SELECT * FROM t001  WHERE bukrs IN so_bukrs.
+* valida permiso para la sociedad seleccionada
+    AUTHORITY-CHECK OBJECT 'ZAUT_BUKRS'
+        ID 'BUKRS' FIELD t001-bukrs
+        ID 'ACTVT' FIELD '03'.
+    IF sy-subrc <> 0.
+      r_bukrs_naut-sign = 'I'.
+      r_bukrs_naut-option = 'EQ'.
+      r_bukrs_naut-low = t001-bukrs.
+      APPEND r_bukrs_naut.
     ELSE.
-      <F1> = SPACE.
+      r_bukrs_aut-sign = 'I'.
+      r_bukrs_aut-option = 'EQ'.
+      r_bukrs_aut-low = t001-bukrs.
+      APPEND r_bukrs_aut.
     ENDIF.
+  ENDSELECT.
+  IF NOT r_bukrs_naut[] IS INITIAL.
+    LOOP AT r_bukrs_naut.
+      MESSAGE i170(zfi01) WITH r_bukrs_naut-low.
+*   No dispone de autorización para la sociedad &.
+    ENDLOOP.
   ENDIF.
-endmodule.                 " zahlweg_markieren  INPUT
+  IF r_bukrs_aut[] IS INITIAL.
+    LEAVE PROGRAM.
+  ENDIF.
+
+  SELECT   *  FROM zfit_sol_cliente
+                 WHERE fecha IN so_fecha
+                   AND bukrs IN r_bukrs_aut
+* Inicio modif Genis 19.07.2007
+                   AND kunnr IN so_kunnr
+                   AND kunnrsap IN so_kusap
+* Fin modif Genis 19.07.2007
+                   AND name1 IN so_name1
+                   AND pais IN so_land1
+                   AND nif   IN so_nif
+                   AND estado IN so_est.
+
+    MOVE-CORRESPONDING zfit_sol_cliente TO t_tblcli.
+    IF t_tblcli-waers IS INITIAL.
+      SELECT SINGLE waers FROM t001 INTO t_tblcli-waers
+                       WHERE bukrs = t_tblcli-bukrs.
+    ENDIF.
+
+    APPEND t_tblcli.
+  ENDSELECT.
+
+
+
+ENDFORM.                    " extraer_datos
+
 *&---------------------------------------------------------------------*
-*&      Module  zahlweg_update  INPUT
+*&      Form  llamar_dynpro
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-module zahlweg_update input.
-  CHECK T020-AKTYP NE 'A'.
+FORM llamar_dynpro.
 
-*  IF sy-stepl = 1.                                      " uh, 07.09.98
-*    REFRESH sorttab.                                    " uh, 07.09.98
-*  ENDIF.                                                " uh, 07.09.98
-
-* Index der aktuellen Zeile:
-  LINDEX = INDEX + SY-STEPL - 1.       " uh, 07.09.98
-
-  IF RF02D-AZSCH NE SPACE.
-    A042Z-XSELK = RF02D-XASEL.
-    A042Z-ZLSCH = RF02D-AZSCH.
-    A042Z-TEXT1 = RF02D-AZTXT.
-*   MODIFY a042z INDEX sy-stepl.                         " uh, 07.09.98
-    MODIFY A042Z INDEX LINDEX.         " uh, 07.09.98
-    IF A042Z-XSELK = 'X'.
-      SORTTAB-ARG = A042Z-ZLSCH.
-      APPEND SORTTAB.
-    ELSE.                              " uh, 07.09.98
-      DELETE SORTTAB WHERE ARG = A042Z-ZLSCH.            " uh, 07.09.98
-    ENDIF.
+*Ini-MGGM-07.11.2013 - Se borran facturas del reporte con datos constantes
+* sociedad 1102 y fechas del 25 y 27 de mayo del 2013.
+LOOP AT t_tblcli.
+  IF t_tblcli-bukrs = '1102' and ( t_tblcli-fecha = '20130525' OR
+                                 t_tblcli-fecha = '20130527' ).
+    DELETE t_tblcli.
   ENDIF.
-
-  IF RF02D-EZSCH NE SPACE.
-    E042Z-XSELK = RF02D-XESEL.
-    E042Z-ZLSCH = RF02D-EZSCH.
-    E042Z-TEXT1 = RF02D-EZTXT.
-*   MODIFY e042z INDEX sy-stepl.                         " uh, 07.09.98
-    MODIFY E042Z INDEX LINDEX.         " uh, 07.09.98
-    IF E042Z-XSELK = 'X'.
-      SORTTAB-ARG = E042Z-ZLSCH.
-      APPEND SORTTAB.
-    ELSE.                              " uh, 07.09.98
-      DELETE SORTTAB WHERE ARG = E042Z-ZLSCH.           " uh, 07.09.98
-    ENDIF.
-  ENDIF.
-endmodule.                 " zahlweg_update  INPUT
-*&---------------------------------------------------------------------*
-*&      Module  ZAHLWEG_LEISTE  INPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-module ZAHLWEG_LEISTE input.
-  CHECK T020-AKTYP NE 'A'.
-
-  CLEAR ZFIEPROV-ZWELS.
-  ZWCNT = 0.
-  SORT SORTTAB DESCENDING.
-  DELETE ADJACENT DUPLICATES FROM SORTTAB.       " uh, 07.09.98
-  LOOP AT SORTTAB.
-    SHIFT ZFIEPROV-ZWELS RIGHT.
-    ZFIEPROV-ZWELS(1) = SORTTAB-ARG.
-    ZWCNT         = ZWCNT + 1.
-  ENDLOOP.
-
-*------- Wurden mehr als 10 Zahlwege angekreuzt ? ----------------------
-  IF ZWCNT > 10.
-    SET SCREEN SY-DYNNR.
-    LEAVE SCREEN.
+ENDLOOP.
+*Fin-MGGM-07.11.2013
+  IF t_tblcli[] IS INITIAL.
+    MESSAGE s024(zfi01).
   ELSE.
-    ZWCNT = 0.
+    SORT t_tblcli BY bukrs kunnr solnum.
+    CALL SCREEN '0100'.
   ENDIF.
 
-  IF OK-CODE = 'MARK'.
-    CLEAR: OK-CODE.
-    SET SCREEN SY-DYNNR.
-    LEAVE SCREEN.
-  ENDIF.
-endmodule.                 " ZAHLWEG_LEISTE  INPUT
+ENDFORM.                    " llamar_dynpro
+
 *&---------------------------------------------------------------------*
-*&      Module  TCTRL_ZAHLWEGE_BLAETTERN  INPUT
+*&      Form  grabar_sel
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-module TCTRL_ZAHLWEGE_BLAETTERN input.
-*Beim Blättern nach Markieren kommt kein ok-code, aber index <> top_line
-  IF INDEX NE TCTRL_ZAHLWEGE-TOP_LINE AND OK-CODE IS INITIAL.
-    INDEX = TCTRL_ZAHLWEGE-TOP_LINE.
-    SET SCREEN SY-DYNNR.
-    LEAVE SCREEN.
-  ENDIF.
+FORM grabar_sel.
 
-  INDEX = TCTRL_ZAHLWEGE-TOP_LINE.
-
-  IF OK-CODE(2) = 'P-'
-  OR OK-CODE(2) = 'P+'.
-    PERFORM FENSTER_BLAETTERN.
-  ENDIF.
-endmodule.                 " TCTRL_ZAHLWEGE_BLAETTERN  INPUT
-
-**----------------------------------------------------------------------*
-***INCLUDE ZFI0002FRM.
-*----------------------------------------------------------------------*
-*&---------------------------------------------------------------------*
-*&      Form  TR_APROB
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_aprob.
-
-  CLEAR: lv_totac, lv_tot, lv_verif.
-
-  " Validar las solicitudes seleccionadas
-  PERFORM verif.
-
-  IF lv_verif IS NOT INITIAL.
-    PERFORM crear_message.
-    RETURN.
-  ENDIF.
-
-  " Confirmación previa del usuario
-  PERFORM confirm.
-
-  CHECK lv_confirm IS NOT INITIAL.
-
-  " Limpiar log antes de procesar las solicitudes
-  REFRESH lt_log.
-
-  " Solicitudes funcionales + migración 1
-  PERFORM tr_aprob_conf.
-
-  " Migración 2
-  PERFORM tr_aprob_conf_modif.
-
-  " Mantener tratamiento existente de mensajes
-  LOOP AT lt_log.
-
-    IF lt_log-msgv1 = 'LFB1-QLAND'.
-      lt_log-msgv1 = 'País de retención'.
+  LOOP AT t_tblcli WHERE sel = 'X'.
+    MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+    MODIFY zfit_sol_cliente.
+    IF sy-subrc = 0.
+      MESSAGE s022(zfi01).
     ENDIF.
+  ENDLOOP.
+  IF sy-subrc <> 0.
+    MESSAGE w031(zfi01).
+  ENDIF.
 
-    MODIFY lt_log.
 
+ENDFORM.                    " grabar_sel
+
+*&---------------------------------------------------------------------*
+*&      Form  CALL_BATCH
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM call_batch.
+
+  CLEAR: messtab, lt_log.
+  REFRESH: messtab, lt_log.
+
+  LOOP AT t_tblcli WHERE sel = 'X'.
+
+* Inicio modif Genis 19.07.2007
+    IF p_new IS INITIAL.
+      SELECT SINGLE cli_pms
+        FROM zficonv_cli_pms
+        INTO t_tblcli-kunnr
+        WHERE cli_pms = t_tblcli-kunnr
+          AND hotel = t_tblcli-bukrs.
+
+      IF sy-subrc = 0.
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '112'.
+        lt_log-msgv1 = t_tblcli-kunnr.
+        lt_log-msgv2 = t_tblcli-bukrs.
+        APPEND lt_log.
+        EXIT.
+      ENDIF.
+    ENDIF.
+* Fin modif Genis 19.07.2007
+
+    IF t_tblcli-kunnrsap IS INITIAL OR t_tblcli-ktokd = '1010'.
+
+*     Validamos el NIF: Si ya existe un cliente con el mismo NIF (Warning)
+      PERFORM f_check_nif.
+      IF answer <> 'J'.
+        CONTINUE.
+      ENDIF.
+
+*     SI EL CLIENTE NO ES CONOCIDO... (No existe en SAP)
+*** INICIO MODIFICACIÓN EMG 06/10/2008
+*      IF t_tblcli-ktokd = 'ZTER'.
+      IF t_tblcli-ktokd EQ '1020' OR
+         t_tblcli-ktokd EQ '1040' OR t_tblcli-ktokd EQ '1910'.
+*** FIN MODIFICACIÓN EMG 06/10/2008
+*   .... Asignación externa de número sap para los Terceros
+        PERFORM f_number_get_next_debitor CHANGING lv_subrc.
+        IF lv_subrc <> 0.
+          EXIT.
+        ENDIF.
+      ELSE.
+*   .... Asignación interna de número sap para el resto
+      ENDIF.
+      IF t_tblcli-ktokd = '1040' AND t_tblcli-kunnrsap IS INITIAL.
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '223'.
+        lt_log-msgv1 = t_tblcli-kunnrsap.
+        APPEND lt_log.
+      ELSE.
+
+*----- CREAR CLIENTE DESCONOCIDO VIA CALL TRANSACTION ---------------------------
+        PERFORM f_bdc_create_unknowm_debitor.
+      ENDIF.
+
+    ELSE.
+
+*     SI EL CLIENTE ES CONOCIDO... (Existe cliente en Sap)
+      SELECT SINGLE * FROM knb1 WHERE kunnr = t_tblcli-kunnrsap.
+      IF sy-subrc <> 0.
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '084'.
+        lt_log-msgv1 = t_tblcli-kunnrsap.
+        APPEND lt_log.
+      ELSE.
+
+* Inicio modif. Genis 19.07.2007
+        SELECT SINGLE kunnr
+          FROM knb1
+          INTO t_tblcli-kunnrsap
+          WHERE kunnr = t_tblcli-kunnrsap
+            AND bukrs = t_tblcli-bukrs.
+
+        IF sy-subrc = 0.
+*         Si el cliente ya existe en esa sociedad, modifca datos de sociedad
+          PERFORM f_bdc_modify_company_data.
+
+          READ TABLE messtab WITH KEY msgtyp = 'E'.
+          IF sy-subrc <> 0.
+            t_tblcli-estado = 'V'.
+
+            SELECT SINGLE ddtext
+              FROM dd07v
+              INTO t_tblcli-estadot
+              WHERE domname = 'ZZDCLIEST'
+                AND ddlanguage = sy-langu
+                AND domvalue_l = t_tblcli-estado.
+
+            t_tblcli-sel = ''.
+            MODIFY t_tblcli.
+            MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+            IF p_new IS INITIAL.
+              MODIFY zfit_sol_cliente.
+            ENDIF.
+
+            MESSAGE s138(zfi01).
+*           Se ha actualizado la tabla de conversion PMS
+
+*            PERFORM crear_asoc_clientes.
+          ENDIF.
+        ELSE.
+*  -------CREAR CLIENTE INFORMADO (AMPLIAR SOCIEDAD) VIA CALL TRANSACT. ----------
+          PERFORM f_bdc_create_known_debitor.
+
+*          PERFORM crear_asoc_clientes.
+        ENDIF.
+* Fin modif. Genis 19.07.2007
+
+      ENDIF.
+    ENDIF.
   ENDLOOP.
 
   CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
     TABLES
       i_message_tab = lt_log.
 
-  "Total entradas procesadas: &1/&2.
-  MESSAGE s025(zfi01)
-  WITH lv_totac lv_tot.
+ENDFORM.                    " CALL_BATCH
 
-ENDFORM.                    " TR_APROB
+*----------------------------------------------------------------------*
+*        Start new screen                                              *
+*----------------------------------------------------------------------*
+FORM bdc_dynpro USING program dynpro.
+  CLEAR bdcdata.
+  bdcdata-program  = program.
+  bdcdata-dynpro   = dynpro.
+  bdcdata-dynbegin = 'X'.
+  APPEND bdcdata.
+ENDFORM.                    "BDC_DYNPRO
+
+*----------------------------------------------------------------------*
+*        Insert field                                                  *
+*----------------------------------------------------------------------*
+FORM bdc_field USING fnam fval.
+  CLEAR bdcdata.
+  bdcdata-fnam = fnam.
+  bdcdata-fval = fval.
+  APPEND bdcdata.
+ENDFORM.                    "BDC_FIELD
+
+*----------------------------------------------------------------------*
+*   create batchinput session                                          *
+*----------------------------------------------------------------------*
+FORM open_group                                             "#EC CALLED
+    USING i_group    LIKE apqi-groupid
+          i_user     LIKE apqi-userid
+          i_keep     LIKE apqi-qerase
+          i_holddate LIKE apqi-startdate.
+* open batchinput group
+  CALL FUNCTION 'BDC_OPEN_GROUP'
+    EXPORTING
+      client   = sy-mandt
+      group    = i_group
+      user     = i_user
+      keep     = i_keep
+      holddate = i_holddate.
+ENDFORM.                    "OPEN_GROUP
+
+*----------------------------------------------------------------------*
+*   end batchinput session                                             *
+*----------------------------------------------------------------------*
+FORM close_group.                                           "#EC CALLED
+* close batchinput group
+  CALL FUNCTION 'BDC_CLOSE_GROUP'.
+ENDFORM.                    "CLOSE_GROUP
+
 *&---------------------------------------------------------------------*
-*&      Form  TR_RECH
+*&      Form  rechazar
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_rech .
-
-  DATA: lv_index TYPE i,
-        lv_lines TYPE i,
-        lv_mes   TYPE i.
-
-  lv_verif = 0.
-
-  PERFORM verif_rech.
-
-  IF NOT lv_verif IS INITIAL.   " Linea error
-
-    PERFORM crear_message.
-
-  ELSE.
-
-    PERFORM ini_cod_int.
-
-    LOOP AT lt_t_1 WHERE sele = 'X'.
-
-      PERFORM tr_rech_sol USING sy-tabix.
-
-      lv_mes = 1.
-
-    ENDLOOP.
-
-    PERFORM fin_cod_int.
-
-    DESCRIBE TABLE lt_t_1 LINES lv_lines.
-
-*   LV_INI = 0.
-
-    IF NOT lv_mes IS INITIAL.
-      MESSAGE s023(zfi01).
+FORM rechazar.
+  LOOP AT t_tblcli WHERE sel = 'X'.
+    MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+    zfit_sol_cliente-estado = 'A'.
+    SELECT SINGLE ddtext FROM dd07v INTO zfit_sol_cliente-estadot
+                      WHERE domname = 'ZZDCLIEST'
+                        AND ddlanguage = sy-langu
+                        AND domvalue_l = zfit_sol_cliente-estado.
+    MODIFY zfit_sol_cliente.
+    IF sy-subrc = 0.
+      DELETE FROM zficonv_cli_pms
+        WHERE hotel = t_tblcli-bukrs
+          AND cli_pms = t_tblcli-kunnr.
+      MESSAGE s022(zfi01).
+      t_tblcli-estado = 'A'.
+      DELETE t_tblcli.
     ENDIF.
+  ENDLOOP.
+  IF sy-subrc <> 0.
+    MESSAGE w031(zfi01).
+  ENDIF.
+ENDFORM.                    " rechazar
+
+*&---------------------------------------------------------------------*
+*&      Form  f_check_nif
+*&---------------------------------------------------------------------*
+*   Validamos NIF: Si existe un cliente con el mismo NIF
+*   --> Mostraremos un Mensaje para decidir si crear otro
+*----------------------------------------------------------------------*
+FORM f_check_nif.
+
+  DATA lv_msg TYPE char70.
+  CLEAR: answer, kna1.
+
+  SELECT SINGLE * FROM kna1 WHERE stcd1 = t_tblcli-nif.
+  IF sy-subrc = 0.
+    CONCATENATE text-003 kna1-kunnr text-009 t_tblcli-nif  INTO lv_msg SEPARATED BY space.
+    CALL FUNCTION 'POPUP_TO_CONFIRM_WITH_MESSAGE'
+      EXPORTING
+        diagnosetext1  = lv_msg
+        textline1      = text-004
+        titel          = text-005
+        cancel_display = ' '
+      IMPORTING
+        answer         = answer.
+  ELSE.
+    answer = 'J'.
   ENDIF.
 
-ENDFORM.                    " TR_RECH
+ENDFORM.                    " comprobar_nif
+
 *&---------------------------------------------------------------------*
-*&      Form  TR_GRABAR
+*&      Form  comprobar_KUNNR
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_grabar .
+FORM comprobar_kunnr.
 
-  DATA: lv_index TYPE i,
-        lv_lines TYPE i,
-        lv_mes   TYPE i.
+  DATA lv_msg TYPE char70.
+  CLEAR:  answer, kna1.
 
-  PERFORM ini_cod_int.
+  SELECT SINGLE * FROM kna1 WHERE kunnr = t_tblcli-kunnrsap.
+  IF sy-subrc <> 0.
+    CONCATENATE text-006 t_tblcli-kunnrsap INTO lv_msg SEPARATED BY space.
+    CALL FUNCTION 'POPUP_TO_CONFIRM_WITH_MESSAGE'
+      EXPORTING
+        diagnosetext1 = lv_msg
+        textline1     = text-004
+        titel         = text-005
+      IMPORTING
+        answer        = answer.
+  ENDIF.
 
-  LOOP AT lt_t_1 WHERE sele = 'X'.
+ENDFORM.                    " comprobar_KUNNR
 
-    PERFORM tr_grabar_sol USING sy-tabix.
+*&---------------------------------------------------------------------*
+*&      Form  import_excel
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM import_excel.
 
-    lv_mes = 1.
+  DATA: lv_vkorg TYPE vkorg,
+         lv_vtweg TYPE vtweg,
+         lv_spart TYPE spart,
+         cabecera TYPE c.
 
+  CLEAR: t_tblcli, t_tblcli2, lt_log, index, index4.
+  REFRESH: t_tblcli, t_tblcli2, lt_log.
+
+* Field symbols.
+
+  DATA: lv_txt       TYPE char80,
+        lt_excel     TYPE TABLE OF alsmex_tabline,
+        ls_excel     TYPE alsmex_tabline.
+
+  CONSTANTS:
+        lc_beg_col   TYPE i VALUE '1',
+        lc_end_col   TYPE i VALUE '100'.
+
+* Indicamos lo que hacemos por pantalla...
+  CONCATENATE text-026 p_file '...' INTO lv_txt
+  SEPARATED BY space.
+  CALL FUNCTION 'SAPGUI_PROGRESS_INDICATOR'
+    EXPORTING
+      text = lv_txt.
+
+* Extraemos los datos del fichero...
+  REFRESH lt_excel.
+  CALL FUNCTION 'ALSM_EXCEL_TO_INTERNAL_TABLE'
+    EXPORTING
+      filename                = p_file
+      i_begin_col             = lc_beg_col
+      i_begin_row             = 2
+      i_end_col               = lc_end_col
+      i_end_row               = 60000
+    TABLES
+      intern                  = lt_excel
+    EXCEPTIONS
+      inconsistent_parameters = 1
+      upload_ole              = 2
+      OTHERS                  = 3.
+  IF sy-subrc = 0.
+* Extraemos la estructura de la tabla interna e insertamos los datos.
+    ASSIGN t_tblcli2 TO <itab>.
+    LOOP AT lt_excel INTO ls_excel.
+      ASSIGN COMPONENT ls_excel-col OF STRUCTURE <itab> TO <field>.
+      <field> = ls_excel-value.
+      IF ls_excel-col = 1.
+        APPEND t_tblcli2. CLEAR t_tblcli2.
+      ELSE.
+        CLEAR t_tblcli2.
+        READ TABLE t_tblcli2 INDEX ls_excel-row.
+        <field> = ls_excel-value.
+        MODIFY t_tblcli2 INDEX ls_excel-row.
+        CLEAR t_tblcli2.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+  LOOP AT t_tblcli2.
+    MOVE-CORRESPONDING t_tblcli2 TO t_tblcli.
+*****    Comprobamos que no se lea la línea de cabecera
+*    IF t_tblcli2-solnum = 'SOLNUM'.
+*      cabecera = 'X'.
+*      DELETE t_tblcli2.
+*      CONTINUE.
+*    ENDIF.
+    t_tblcli-fecha = sy-datum.
+    t_tblcli-hora = sy-uzeit.
+    CLEAR: ano, mes, dia.
+    ano = t_tblcli2-wt_agtdf+4(4).
+    mes = t_tblcli2-wt_agtdf+2(2).
+    dia = t_tblcli2-wt_agtdf(2).
+    CONCATENATE ano mes dia INTO t_tblcli-wt_agtdf.
+    CLEAR: ano, mes, dia.
+    ano = t_tblcli2-wt_agtdt+4(4).
+    mes = t_tblcli2-wt_agtdt+2(2).
+    dia = t_tblcli2-wt_agtdt(2).
+    CONCATENATE ano mes dia INTO t_tblcli-wt_agtdt.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = t_tblcli2-bukrs
+      IMPORTING
+        output = t_tblcli-bukrs.
+*    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+*      EXPORTING
+*        input  = t_tblcli2-kunnr
+*      IMPORTING
+*        output = t_tblcli-kunnr.
+    IF t_tblcli-waers IS INITIAL.
+      SELECT SINGLE waers FROM t001 INTO t_tblcli-waers
+                       WHERE bukrs = t_tblcli-bukrs.
+    ENDIF.
+    APPEND t_tblcli.
   ENDLOOP.
 
-  PERFORM fin_cod_int.
 
-  DESCRIBE TABLE lt_t_1 LINES lv_lines.
-
-  IF lv_lines IS INITIAL.
-
-*    LV_INI = 0.
-
-  ENDIF.
-
-  IF NOT lv_mes IS INITIAL.
-    MESSAGE s022(zfi01).
-  ENDIF.
+  LOOP AT t_tblcli.
+    IF cabecera = 'X'.
+      index = index + 2.
+      CLEAR cabecera.
+    ELSE.
+      index = index + 1.
+    ENDIF.
 
 
-ENDFORM.                    " TR_GRABAR
+*****    Comprobamos que no esté la solicitud en sap
+    SELECT SINGLE * FROM zfit_sol_cliente WHERE solnum = t_tblcli-solnum.
+    IF sy-subrc <> 0.
+*****    Comprobamos que la sociedad exista
+      SELECT SINGLE * FROM t001 WHERE bukrs = t_tblcli-bukrs.
+      IF sy-subrc <> 0.
+        index4 = index.
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '046'.
+        lt_log-msgv1 = t_tblcli-bukrs.
+        lt_log-msgv2 = index4.
+        APPEND lt_log.
+        DELETE t_tblcli.
+        CONTINUE.
+      ENDIF.
+*****    Comprobamos que el grupo de cuentas exista
+      SELECT SINGLE * FROM t077d WHERE ktokd = t_tblcli-ktokd.
+      IF sy-subrc <> 0.
+        index4 = index.
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '046'.
+        lt_log-msgv1 = t_tblcli-ktokd.
+        lt_log-msgv2 = index4.
+        APPEND lt_log.
+        DELETE t_tblcli.
+        CONTINUE.
+      ENDIF.
+*****    Comprobamos Org.ventas /Canal distribución/ Sector.
+      SELECT SINGLE vkorg  INTO lv_vkorg FROM tvko WHERE bukrs = t_tblcli-bukrs.
+      SELECT SINGLE vtweg spart INTO (lv_vtweg, lv_spart) FROM tvta WHERE vkorg = lv_vkorg.
+
+      IF lv_vkorg IS INITIAL AND lv_vtweg IS INITIAL AND lv_spart IS INITIAL.
+        index4 = index.
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '049'.
+        lt_log-msgv1 = t_tblcli-bukrs.
+        lt_log-msgv2 = index4.
+        APPEND lt_log.
+        DELETE t_tblcli.
+        CONTINUE.
+      ENDIF.
+*****
+
+      MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+      zfit_sol_cliente-estado = 'S'.
+      SELECT SINGLE ddtext FROM dd07v INTO zfit_sol_cliente-estadot
+                      WHERE domname = 'ZZDCLIEST'
+                        AND ddlanguage = sy-langu
+                        AND domvalue_l = zfit_sol_cliente-estado.
+      INSERT zfit_sol_cliente.
+    ELSE.
+      index4 = index.
+      lt_log-msgtyp = 'E'.
+      lt_log-msgid = 'ZFI01'.
+      lt_log-msgnr = '048'.
+      lt_log-msgv1 = t_tblcli-solnum.
+      lt_log-msgv2 = index4.
+      APPEND lt_log.
+      DELETE t_tblcli.
+      CONTINUE.
+    ENDIF.
+*****
+  ENDLOOP.
+
+  CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
+    TABLES
+      i_message_tab = lt_log.
+
+ENDFORM.                    " import_excel
+
 *&---------------------------------------------------------------------*
-*&      Form  TR_MARCAR
+*&      Form  verif
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_marcar .
+FORM verif.
 
-  lt_t_1-sele = 'X'.
+DATA: wa_t077d TYPE t077d.
 
-  MODIFY lt_t_1 FROM lt_t_1
-       TRANSPORTING sele WHERE sele <> 'X'.
-
-ENDFORM.                    " TR_MARCAR
-*&---------------------------------------------------------------------*
-*&      Form  TR_DESMARCAR
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_desmarcar .
-
-  CLEAR lt_t_1-sele.
-  lv_cursor = 1.
-
-  MODIFY lt_t_1 FROM lt_t_1
-       TRANSPORTING sele WHERE sele = 'X'.
-
-ENDFORM.                    " TR_DESMARCAR
-*&---------------------------------------------------------------------*
-*&      Form  VERIF
-*&---------------------------------------------------------------------*
-*
-*----------------------------------------------------------------------*
-FORM verif .
-
-  TYPES: BEGIN OF ty_lfa1_lfb1,
-           lifnr TYPE lifnr.
-  TYPES: END OF ty_lfa1_lfb1.
-
-  DATA: ls_lfa1_lfb1 TYPE ty_lfa1_lfb1.
-
-  DATA: BEGIN OF lt_bukrs OCCURS 0,
-          bukrs LIKE zfitprov-bukrs,
-        END OF lt_bukrs.
-
-  DATA lv_fail TYPE i.
-
-  LOOP AT lt_t_1 WHERE NOT sele IS INITIAL.
-
-    IF lt_t_1-bukrs IS INITIAL.
-
+  LOOP AT t_tblcli WHERE sel = 'X'.
+    IF t_tblcli-ktokd IS INITIAL.
       lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-BUKRS'.
-      PERFORM texto_error USING 'BUKRS' TEXT-001 CHANGING lv_verif_t.
+      lv_verif_t = text-024.
+      lv_cursor_field = 'G_TBLCLI_WA-KTOKD'.
       EXIT.
-
     ENDIF.
 
-    IF lt_t_1-bu_group IS INITIAL.
+***INI ALML 27.05.2013
+*    IF t_tblcli-ktokd <> '1020' AND"rcd
+*       t_tblcli-ktokd <> '1030' AND"rsd
+*       t_tblcli-ktokd <> '1050' AND"rcd aayala 16.01.2012
+*       t_tblcli-ktokd <> '1010' AND"rcd aayala 16.01.2012
+*       t_tblcli-ktokd <> '1060' AND   "Add-MGGM-19.04.2013
+**       t_tblcli-ktokd <> '1040' AND"rsd
+**       t_tblcli-ktokd <> '1910' AND
+**       t_tblcli-ktokd <> 'ZINT' AND
+*       t_tblcli-sel = 'X'.
+*      lv_verif = sy-tabix.
+*      lv_verif_t = text-010.
+*      lv_cursor_field = 'G_TBLCLI_WA-KTOKD'.
+*      EXIT.
+*    ENDIF.
 
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-BU_GROUP'.
-      PERFORM texto_error USING 'BU_GROUP' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
+*Verificar si el Gpo de cuentas existe
+    CLEAR wa_t077d.
+    TRANSLATE t_tblcli-ktokd TO UPPER CASE.
 
-    ENDIF.
+    IF NOT t_tblcli-ktokd IS INITIAL.
 
-    IF lt_t_1-cif IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-CIF'.
-      PERFORM texto_error USING 'STCD1' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-
-    IF lt_t_1-pais IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-PAIS'.
-      PERFORM texto_error USING 'LAND1' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-* Mod validación RNC - AS
-    DATA: lc_error TYPE char1,
-          lc_text  TYPE char100,
-          wa_lfa1  LIKE lfa1.
-    CLEAR: lc_error, lc_text, wa_lfa1.
-    IF lt_t_1-cif IS NOT INITIAL AND lt_t_1-pais EQ 'DO'.
-      IF NOT lt_t_1-partner IS INITIAL.
-        SELECT SINGLE *
-                 FROM lfa1
-                WHERE stcd1 = lt_t_1-cif.
-        IF sy-subrc EQ 0.
-          SELECT SINGLE *
-                   FROM lfa1
-                  WHERE stcd1 = lt_t_1-cif AND
-                        lifnr = lt_t_1-partner.
-          IF sy-subrc NE 0.
-            lc_text  = 'El RNC está duplicado, verifíquelo'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ELSE.
-          CALL FUNCTION 'ZVALIDACION_RNC'
-            EXPORTING
-              fisica       = lt_t_1-stkzn
-              nif_g        = lt_t_1-cif
-            IMPORTING
-              nif_correcto = lc_error
-              text2        = lc_text.
-          IF lc_error EQ 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ENDIF.
-      ELSE.
-        SELECT SINGLE *
-         FROM lfa1
-        WHERE stcd1 = lt_t_1-cif.
-        IF sy-subrc = 0.
-          SELECT SINGLE *
-                   FROM lfa1
-                  WHERE stcd1 = lt_t_1-cif AND
-                        lifnr = lt_t_1-partner.
-          IF sy-subrc NE 0.
-            lc_text  = 'El RNC está duplicado, verifíquelo'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ELSE.
-          CALL FUNCTION 'ZVALIDACION_RNC'
-            EXPORTING
-              fisica       = lt_t_1-stkzn
-              nif_g        = lt_t_1-cif
-            IMPORTING
-              nif_correcto = lc_error
-              text2        = lc_text.
-          IF lc_error EQ 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ENDIF.
-      ENDIF.
-    ELSEIF lt_t_1-cif IS NOT INITIAL AND lt_t_1-pais EQ 'MX'.
-      IF NOT lt_t_1-partner IS INITIAL.
-        SELECT SINGLE *
-                 FROM lfa1
-                WHERE stcd1 = lt_t_1-cif.
-        IF sy-subrc EQ 0.
-          SELECT SINGLE *
-                   FROM lfa1
-                  WHERE stcd1 = lt_t_1-cif AND
-                        lifnr = lt_t_1-partner.
-          IF sy-subrc NE 0.
-            lc_text  = 'El RFC está duplicado, verifíquelo'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ELSE.
-          IF NOT lt_t_1-stkzn IS INITIAL AND lt_t_1-stcd3 IS INITIAL.
-            lc_text  = 'Incoherencia con RFC o CURP, persona física'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD3' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ELSE.
-            CALL FUNCTION 'ZVALIDACION_RFC_CURP'
-              EXPORTING
-                fisica       = lt_t_1-stkzn
-                nif_g        = lt_t_1-cif
-                nif_p        = lt_t_1-stcd3
-              IMPORTING
-                nif_correcto = lc_error
-                text2        = lc_text.
-            IF lc_error EQ 'X'.
-              lv_verif = sy-tabix.
-              lv_cursor_field = 'ZFIEPROV-CIF'.
-              PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-              EXIT.
-            ENDIF.
-          ENDIF.
-        ENDIF.
-      ELSE.
-        SELECT SINGLE *
-         FROM lfa1
-        WHERE stcd1 = lt_t_1-cif.
-        IF sy-subrc = 0.
-
-          SELECT SINGLE *
-                   FROM lfa1
-                  WHERE stcd1 = lt_t_1-cif
-              AND lifnr = lt_t_1-partner.
-
-          IF sy-subrc NE 0.
-            lc_text  = 'El RFC está duplicado, verifíquelo'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ELSE.
-          IF NOT lt_t_1-stkzn IS INITIAL AND lt_t_1-stcd3 IS INITIAL.
-            lc_text  = 'Incoherencia RFC o CURP, persona física'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD3' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ELSE.
-            CALL FUNCTION 'ZVALIDACION_RFC_CURP'
-              EXPORTING
-                fisica       = lt_t_1-stkzn
-                nif_g        = lt_t_1-cif
-                nif_p        = lt_t_1-stcd3
-              IMPORTING
-                nif_correcto = lc_error
-                text2        = lc_text.
-            IF lc_error EQ 'X'.
-              lv_verif = sy-tabix.
-              lv_cursor_field = 'ZFIEPROV-CIF'.
-              PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-              EXIT.
-            ENDIF.
-          ENDIF.
-        ENDIF.
+      CALL FUNCTION 'T077D_SINGLE_READ'
+        EXPORTING
+          i_ktokd         = t_tblcli-ktokd
+        IMPORTING
+          o_t077d         = wa_t077d
+        EXCEPTIONS
+          not_found       = 1
+          parameter_error = 2
+          OTHERS          = 3.
+      IF sy-subrc <> 0.
+       lv_verif = sy-tabix.
+       lv_verif_t = text-010.
+       lv_cursor_field = 'G_TBLCLI_WA-KTOKD'.
+       EXIT.
       ENDIF.
     ENDIF.
+***FIN ALML 27.05.2013
 
+    IF t_tblcli-ktokd = '1040' AND
+      t_tblcli-vbund IS INITIAL OR
+*       t_tblcli-ktokd = 'ZINT' AND
+*       t_tblcli-vbund IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-011.
+      lv_cursor_field = 'G_TBLCLI_WA-VBUND'.
+    ENDIF.
     CALL FUNCTION 'TAX_NUMBER_CHECK'
       EXPORTING
-        country             = lt_t_1-pais
+        country             = t_tblcli-pais
         natural_person_flag = ' '
-        tax_code_1          = lt_t_1-cif
+        tax_code_1          = t_tblcli-nif
       EXCEPTIONS
         not_valid           = 1
         different_fprcd     = 2
@@ -1109,3985 +1503,1341 @@ FORM verif .
     IF sy-subrc <> 0.
 
       lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-CIF'.
-      PERFORM texto_error USING 'STCD1' TEXT-022 CHANGING lv_verif_t.
+      lv_verif_t = text-012.
+      lv_cursor_field = 'G_TBLCLI_WA-NIF'.
       EXIT.
 
     ENDIF.
 
-    IF lt_t_1-name1 IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-NAME1'.
-      PERFORM texto_error USING 'AD_NAME1' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF lt_t_1-direc IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-DIREC'.
-      PERFORM texto_error USING 'AD_STREET' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-*Marta: 27.11.2008 - inicio modificación
-*La calle no puede ser mayor de 35 caracteres ya que despues se va al LFA1-SPRAS, eso pasa cuando no hay organización de compras
-    ELSE.
-      DATA: va_num TYPE i.
-
-      SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
-      IF sy-subrc EQ 4.
-        va_num = strlen( lt_t_1-direc ).
-        IF va_num GT 35.
-          lv_verif = sy-tabix.
-          lv_verif_t = TEXT-002.
-          EXIT.
-        ENDIF.
-      ENDIF.
-*Marta: 27.11.2008 - fin modificación
-
-    ENDIF.
-
-    IF lt_t_1-cod_post IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-COD_POST'.
-      PERFORM texto_error USING 'AD_PSTCD1' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF lt_t_1-busq IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-BUSQ'.
-      PERFORM texto_error USING 'SORTL' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF lt_t_1-poblac IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-POBLAC'.
-      PERFORM texto_error USING 'AD_CITY1' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF lt_t_1-region IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-REGION'.
-      PERFORM texto_error USING 'REGIO' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-*** Inicio ERCMM Mod. se comenta estos campos porque no son obligatorios   29.03.2012 16:00:21
-*    IF lt_t_1-tel IS INITIAL.
-*
+*    IF t_tblcli-waers IS INITIAL.
 *      lv_verif = sy-tabix.
-*      lv_cursor_field = 'ZFIEPROV-TEL'.
-*      PERFORM texto_error USING 'AD_TLNMBR1' text-001 CHANGING lv_verif_t.
+*      lv_verif_t = text-013.
 *      EXIT.
-*
 *    ENDIF.
-
-*    IF lt_t_1-fax IS INITIAL AND lt_t_1-zwels EQ '3'.
-*
-*      lv_verif = sy-tabix.
-*      lv_cursor_field = 'ZFIEPROV-FAX'.
-*      PERFORM texto_error USING 'AD_FXNMBR1' text-025 CHANGING lv_verif_t.
-*      EXIT.
-*
-*    ENDIF.
-*** Fin ERCMM  se comenta estos campos porque no son obligatorios  29.03.2012 16:00:21
-    IF lt_t_1-spras IS INITIAL.
-
+    IF t_tblcli-fdgrv IS INITIAL.
       lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-SPRAS'.
-      PERFORM texto_error USING 'SPRAS' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF lt_t_1-fdgrv IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-FDGRV'.
-      PERFORM texto_error USING 'FDGRV' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF lt_t_1-akont IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-AKONT'.
-      PERFORM texto_error USING 'AKONT' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-*   IF LT_T_1-DZSABE_K IS INITIAL.
-*
-*     LV_VERIF = SY-TABIX.
-*     LV_CURSOR_FIELD = 'ZFIEPROV-DZSABE_K'.
-*     PERFORM TEXTO_ERROR USING 'DZSABE_K' TEXT-001 CHANGING LV_VERIF_T.
-*     EXIT.
-*
-*   ENDIF.
-
-    IF lt_t_1-zterm IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-ZTERM'.
-      PERFORM texto_error USING 'DZTERM' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-    ELSE.
-      SELECT COUNT(*) FROM t052 UP TO 1 ROWS
-                      WHERE zterm EQ lt_t_1-zterm
-                        AND koart EQ 'D'.
-      IF sy-subrc EQ 0.
-        lv_verif = sy-tabix.
-        lv_cursor_field = 'ZFIEPROV-ZTERM'.
-        MESSAGE ID 'ZMJE' TYPE 'W' NUMBER 400 INTO lv_verif_t.
-        EXIT.
-      ENDIF.
-*** FIN MODIFICACIÓN EMG 12/05/2009
-    ENDIF.
-
-    IF lt_t_1-waers IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-WAERS'.
-      PERFORM texto_error USING 'WAERS' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF lt_t_1-ekorg IS INITIAL.
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-**** INICIO MODIFICACIÓN EMG 28/04/2008
-*      IF NOT lt_t_1-bukrs IS INITIAL.
-*        SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
-*        IF sy-subrc EQ 0.
-**** FIN MODIFICACIÓN EMG 28/04/2008
-*          lv_verif = sy-tabix.
-*          lv_cursor_field = 'ZFIEPROV-EKORG'.
-*          PERFORM texto_error USING 'EKORG' text-001 CHANGING lv_verif_t.
-*          EXIT.
-**** INICIO MODIFICACIÓN EMG 28/04/2008
-*        ENDIF.
-*      ENDIF.
-**** FIN MODIFICACIÓN EMG 28/04/2008
-      IF NOT lt_t_1-bukrs IS INITIAL.
-        SELECT COUNT(*) FROM t024w UP TO 1 ROWS
-                        WHERE werks EQ lt_t_1-bukrs
-                          AND ekorg NE space.
-        IF sy-subrc EQ 0.
-          lv_verif = sy-tabix.
-          lv_cursor_field = 'ZFIEPROV-EKORG'.
-          MESSAGE ID 'ZMJE' TYPE 'W' NUMBER 401 INTO lv_verif_t.
-          EXIT.
-        ENDIF.
-      ENDIF.
-    ELSE.
-      IF NOT lt_t_1-bukrs IS INITIAL.
-        SELECT COUNT(*) FROM t024w UP TO 1 ROWS
-                        WHERE werks EQ lt_t_1-bukrs
-                          AND ekorg EQ lt_t_1-ekorg.
-        IF sy-subrc NE 0.
-          lv_verif = sy-tabix.
-          lv_cursor_field = 'ZFIEPROV-EKORG'.
-          MESSAGE ID 'ZMJE' TYPE 'W' NUMBER 402 INTO lv_verif_t
-                  WITH lt_t_1-bukrs lt_t_1-ekorg.
-          EXIT.
-        ENDIF.
-      ENDIF.
-*** FIN MODIFICACIÓN EMG 12/05/2009
-    ENDIF.
-
-    IF lt_t_1-zwels IS INITIAL.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-ZWELS'.
-      PERFORM texto_error USING 'DZWELS' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF lt_t_1-rcomp IS INITIAL AND lt_t_1-bu_group EQ 'ZTGR'.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-RCOMP'.
-      PERFORM texto_error USING 'VBUND' TEXT-001 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-*) Inicio de modificación Edgar Béjar / ebejar 11.09.2020
-*) Se quita la validación de campo obligatorio a Clave de Grupo para darle su uso real.
-*) Se comentaron las siguientes líneas
-*    IF lt_t_1-c_fisc_mx IS INITIAL."comentado para RCD 1.12.2011 aayala
-*      SELECT SINGLE * FROM t001 WHERE bukrs = lt_t_1-bukrs.
-*      IF t001-land1 = 'MX'.
-*        lv_verif = sy-tabix.
-*        lv_cursor_field = 'ZFIEPROV-C_FISC_MX'.
-*        PERFORM texto_error USING 'KONZS' text-001 CHANGING lv_verif_t.
-*        EXIT.
-*      ELSEIF t001-land1 = 'DO'.
-*        lt_t_1-c_fisc_mx = '00'.
-*        MODIFY lt_t_1.
-*      ENDIF.
-*    ENDIF.
-*) Fin de modificación Edgar Béjar / ebejar 11.09.2020
-
-*Marta: 26.06.2008
-* Eliminar la comprobación de retención
-* que solo se use cuando haya algo en los campos de retención
-
-*Marta: 25.06.2008
-*    IF lt_t_1-pais_r IS INITIAL AND lt_t_1-ktokk EQ 'ZRET'.
-*    IF lt_t_1-pais_r IS INITIAL AND lt_t_1-ktokk EQ 'ZTER'.
-**Marta: 25.06.2008
-*      lv_verif = sy-tabix.
-*      lv_cursor_field = 'ZFIEPROV-PAIS_R'.
-*      PERFORM texto_error_2 USING 'QLAND' lt_t_1-ktokk text-026 CHANGING lv_verif_t.
-*      EXIT.
-
-*    ENDIF.
-
-*Marta: 25.06.2008
-*    IF lt_t_1-wt_withcd IS INITIAL AND lt_t_1-ktokk EQ 'ZRET'.
-*    IF lt_t_1-wt_withcd IS INITIAL AND lt_t_1-ktokk EQ 'ZTER'.
-*Marta: 25.06.2008
-*      lv_verif = sy-tabix.
-*      lv_cursor_field = 'ZFIEPROV-WT_WITHCD'.
-*      PERFORM texto_error_2 USING 'WT_WITHCD' lt_t_1-ktokk text-026 CHANGING lv_verif_t.
-*      EXIT.
-
-*    ENDIF.
-
-*Marta: 25.06.2008
-*    IF NOT lt_t_1-pais_r IS INITIAL AND lt_t_1-ktokk NE 'ZRET'.
-*    IF NOT lt_t_1-pais_r IS INITIAL AND lt_t_1-ktokk NE 'ZTER'.
-*Marta: 25.06.2008
-*      lv_verif = sy-tabix.
-*      lv_cursor_field = 'ZFIEPROV-PAIS_R'.
-*      PERFORM texto_error_2 USING 'QLAND' lt_t_1-ktokk text-024 CHANGING lv_verif_t.
-*      EXIT.
-
-*    ENDIF.
-
-*Marta: 25.06.2008
-*    IF NOT lt_t_1-wt_withcd IS INITIAL AND lt_t_1-ktokk NE 'ZRET'.
-*    IF NOT lt_t_1-wt_withcd IS INITIAL AND lt_t_1-ktokk NE 'ZTER'.
-*Marta: 25.06.2008
-*      lv_verif = sy-tabix.
-*      lv_cursor_field = 'ZFIEPROV-WT_WITHCD'.
-*      PERFORM texto_error_2 USING 'WT_WITHCD' lt_t_1-ktokk text-024 CHANGING lv_verif_t.
-*      EXIT.
-
-*    ENDIF.
-
-*Marta: 26.06.2008
-
-    IF lt_t_1-rcomp IS INITIAL AND lt_t_1-bu_group EQ 'ZTGR'.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-RCOMP'.
-      PERFORM texto_error_2 USING 'VBUND' lt_t_1-bu_group TEXT-026 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF NOT lt_t_1-rcomp IS INITIAL AND lt_t_1-bu_group NE 'ZTGR'.
-
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-RCOMP'.
-      PERFORM texto_error_2 USING 'VBUND' lt_t_1-bu_group TEXT-024 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-    IF ( lt_t_1-repl EQ 'X' ).
-
-      REFRESH lt_bukrs.
-
-      PERFORM acces_gr_sync TABLES lt_bukrs.
-
-      CLEAR lv_fail.
-      PERFORM check_bukrs TABLES lt_bukrs
-                          USING lt_t_1-akont
-                          CHANGING lv_fail lv_verif_t.
-
-      IF NOT lv_fail IS INITIAL.
-        lv_verif = sy-tabix.
-      ENDIF.
-
-    ENDIF.
-
-*** INICIO MODIFICACIÓN EMG 22/10/2008
-    IF ( ( NOT lt_t_1-pais_r IS INITIAL OR NOT lt_t_1-witht IS INITIAL OR NOT lt_t_1-wt_withcd IS INITIAL ) AND
-         (     lt_t_1-pais_r IS INITIAL OR     lt_t_1-witht IS INITIAL OR     lt_t_1-wt_withcd IS INITIAL ) ).
-      lv_verif = sy-tabix.
-      lv_cursor_field = 'ZFIEPROV-PAIS_R'.
-      lv_verif_t = TEXT-028.
+      lv_verif_t = text-014.
+      lv_cursor_field = 'G_TBLCLI_WA-FDGRV'.
       EXIT.
     ENDIF.
-    IF NOT lt_t_1-witht IS INITIAL AND
-       NOT lt_t_1-wt_withcd IS INITIAL.
-      SELECT COUNT(*) FROM t059z UP TO 1 ROWS
-                      WHERE witht     EQ lt_t_1-witht
-                        AND wt_withcd EQ lt_t_1-wt_withcd.
-      IF sy-subrc NE 0 OR
-         ( sy-subrc EQ 0 AND sy-dbcnt EQ 0 ).
-        lv_verif = sy-tabix.
-        lv_cursor_field = 'ZFIEPROV-WITHT'.
-        lv_verif_t = TEXT-029.
-      ENDIF.
+    IF t_tblcli-akont IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-015.
+      lv_cursor_field = 'G_TBLCLI_WA-AKONT'.
+      EXIT.
     ENDIF.
-*** FIN MODIFICACIÓN EMG 22/10/2008
-
-*** INICIO MODIFICACIÓN EMG 12/05/2009
-    IF NOT lt_t_1-brsch IS INITIAL.
-      SELECT COUNT(*) FROM t016 WHERE brsch EQ lt_t_1-brsch.
-      IF sy-subrc NE 0.
-        lv_verif = sy-tabix.
-        lv_cursor_field = 'ZFIEPROV-BRSCH'.
-        MESSAGE ID 'ZMJE' TYPE 'W' NUMBER 403 INTO lv_verif_t WITH lt_t_1-brsch.
-        EXIT.
-      ENDIF.
+    IF t_tblcli-zterm IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-016.
+      lv_cursor_field = 'G_TBLCLI_WA-ZTERM'.
+      EXIT.
     ENDIF.
-*** FIN MODIFICACIÓN EMG 12/05/2009
-
+    IF t_tblcli-zwels IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-017.
+      lv_cursor_field = 'G_TBLCLI_WA-ZWELS'.
+      EXIT.
+    ENDIF.
+    IF t_tblcli-pais IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-018.
+      lv_cursor_field = 'G_TBLCLI_WA-PAIS'.
+      EXIT.
+    ENDIF.
+    IF t_tblcli-name1 IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-019.
+      lv_cursor_field = 'G_TBLCLI_WA-NAME1'.
+      EXIT.
+    ENDIF.
+    IF t_tblcli-sort1 IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-020.
+      lv_cursor_field = 'G_TBLCLI_WA-SORT1'.
+      EXIT.
+    ENDIF.
+    IF t_tblcli-poblac1 IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-021.
+      lv_cursor_field = 'G_TBLCLI_WA-POBLAC1'.
+      EXIT.
+    ENDIF.
+    IF t_tblcli-cod_post IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-022.
+      lv_cursor_field = 'G_TBLCLI_WA-COD_POST'.
+      EXIT.
+    ENDIF.
+    IF t_tblcli-direc1 IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_verif_t = text-023.
+      lv_cursor_field = 'G_TBLCLI_WA-DIREC1'.
+      EXIT.
+    ENDIF.
   ENDLOOP.
 
-ENDFORM.                    " VERIF
+ENDFORM.                    " verif
+
 *&---------------------------------------------------------------------*
-*&      Form  CREAR_MESSAGE
+*&      Form  crear_message
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM crear_message .
-
+FORM crear_message.
   MESSAGE i021(zfi01) WITH lv_verif lv_verif_t.
+ENDFORM.                    " crear_message
 
-ENDFORM.                    " CREAR_MESSAGE
 *&---------------------------------------------------------------------*
-*&      Form  CONFIRM
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM confirm .
-
-  DATA lv_lin TYPE i.
-
-  DATA lv_conf(1).
-
-  DESCRIBE TABLE lt_t_1 LINES lv_lin.
-
-  IF NOT lv_lin IS INITIAL.
-
-    CALL FUNCTION 'POPUP_TO_CONFIRM'
-      EXPORTING
-        titlebar              = TEXT-010
-        text_question         = TEXT-011
-        display_cancel_button = ''
-        start_column          = 25
-        start_row             = 6
-      IMPORTING
-        answer                = lv_conf.
-
-    IF lv_conf = '1'.
-
-      lv_confirm = 1.
-
-    ELSE.
-
-      lv_confirm = 0.
-
-    ENDIF.
-
-  ELSE.
-
-    lv_confirm = 1.
-
-  ENDIF.
-
-ENDFORM.                    " CONFIRM
-*&---------------------------------------------------------------------*
-*&      Form  TR_APROB_CONF
+*&      Form  rechazarm
 *&---------------------------------------------------------------------*
 *       text
 *----------------------------------------------------------------------*
-FORM tr_aprob_conf .
+FORM rechazarm.
 
-  DATA: lv_index TYPE i.
-  DATA: lv_aprob TYPE i.
+  LOOP AT t_tblcli WHERE sel = 'X'.
 
-  DATA: BEGIN OF lt_bukrs OCCURS 0,
-          bukrs LIKE zfitprov-bukrs,
-        END OF lt_bukrs.
-
-  DATA lv_bukrs LIKE zfitprov-bukrs.
-
-  PERFORM ini_cod_int.
-
-* Solicitudes seleccionados
-  LOOP AT lt_t_1 WHERE  sele = 'X' AND
-                       ( migr IS INITIAL OR migr EQ 1 ).
-    CLEAR gv_lifnr.
-    lv_index = sy-tabix.
-    lv_aprob = 0.
-    lv_tot = lv_tot + 1.
-
-* Datos Generales
-    PERFORM tr_aprob_sol USING lv_index CHANGING lv_aprob.
-
-* Grupos de sincronización / Sociedades ES ( Migración ES )
-    IF ( lt_t_1-repl EQ 'X' OR NOT lv_migr IS INITIAL ) AND
-       NOT lv_aprob IS INITIAL.
-
-      lv_bukrs = lt_t_1-bukrs.
-      REFRESH lt_bukrs.
-
-      IF NOT lv_migr IS INITIAL.
-* Migración ES
-        PERFORM mig_access_soc_es TABLES lt_bukrs.
-      ELSE.
-* Grupos de sincronización
-        PERFORM acces_gr_sync TABLES lt_bukrs.
-      ENDIF.
-
-      LOOP AT lt_bukrs.
-
-        IF lv_aprob IS INITIAL.
-          EXIT.
-        ENDIF.
-
-        lt_t_1-bukrs = lt_bukrs.
-
-* Sociedad (Modelo)
-        CLEAR lv_aprob.
-        PERFORM migr_soc_modl USING lv_bukrs lv_index
-                              CHANGING lv_aprob.
-** Inicio CGR 11/02/2009
-        IF lt_t_1-repl = 'X'.
-
-          lv_aprob = '1'.
-
-        ELSE.
-** Fin CGR 11/02/2009
-
-          IF lv_aprob IS INITIAL.
-            EXIT.
-          ENDIF.
-** Inicio CGR 11/02/2009
-        ENDIF.
-** Fin CGR 11/02/2009
-
-        IF NOT lt_t_1-bloq IS INITIAL.
-* Bloqueo Sociedad
-          CLEAR lv_aprob.
-          PERFORM tr_bloq_soc USING lv_index CHANGING lv_aprob.
-        ENDIF.
-
-      ENDLOOP.
-      lt_t_1-bukrs = lv_bukrs.
-
-    ENDIF.
-
-    IF lv_aprob IS INITIAL.
-
-      PERFORM tr_grabar_sol USING lv_index.
-
-    ELSE.
-
-      PERFORM tr_aprob_sol_act USING lv_index.
-      lv_totac = lv_totac + 1.
-
-    ENDIF.
-
-  ENDLOOP.
-
-  PERFORM fin_cod_int.
-
-ENDFORM.                    " TR_APROB_CONF
-*&---------------------------------------------------------------------*
-*&      Form  INI_COD_INT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM ini_cod_int .
-
-  DO.
-
-    CALL FUNCTION 'ENQUEUE_EZFIBZFITPROV'
-      EXPORTING
-        mode_zfitprov  = 'E'
-      EXCEPTIONS
-        foreign_lock   = 1
-        system_failure = 2
-        OTHERS         = 3.
-
+    MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+    zfit_sol_cliente-estado = 'R'.
+    SELECT SINGLE ddtext FROM dd07v INTO zfit_sol_cliente-estadot
+                      WHERE domname = 'ZZDCLIEST'
+                        AND ddlanguage = sy-langu
+                        AND domvalue_l = zfit_sol_cliente-estado.
+    MODIFY zfit_sol_cliente.
     IF sy-subrc = 0.
-
-      EXIT.
-
-    ELSE.
-
-      WAIT UP TO 1 SECONDS.
-
-    ENDIF.
-
-  ENDDO.
-
-  lv_cod_int = 0.
-
-  SELECT * FROM zfitprov ORDER BY cod_int DESCENDING.
-
-    lv_cod_int = zfitprov-cod_int.
-    EXIT.
-
-  ENDSELECT.
-
-ENDFORM.                    " INI_COD_INT
-*&---------------------------------------------------------------------*
-*&      Form  FIN_COD_INT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-FORM fin_cod_int .
-
-  COMMIT WORK.
-
-  CALL FUNCTION 'DEQUEUE_EZFIBZFITPROV'
-    EXPORTING
-      mode_zfitprov = 'E'.
-
-ENDFORM.                    " FIN_COD_INT
-*&---------------------------------------------------------------------*
-*&      Form  TR_CONS
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_cons .
-
-  lv_confirm = 0.
-
-  PERFORM confirm_fin.
-
-  IF NOT lv_confirm IS INITIAL.
-
-    LEAVE TO TRANSACTION 'ZBP004'.
-
-  ENDIF.
-
-ENDFORM.                    " TR_CONS
-*&---------------------------------------------------------------------*
-*&      Form  CONFIRM_FIN
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM confirm_fin .
-
-  DATA lv_lin TYPE i.
-
-  DATA lv_conf(1).
-
-  DESCRIBE TABLE lt_t_1 LINES lv_lin.
-
-  IF NOT lv_lin IS INITIAL.
-
-    CALL FUNCTION 'POPUP_TO_CONFIRM'
-      EXPORTING
-        titlebar              = TEXT-013
-        text_question         = TEXT-014
-        display_cancel_button = ''
-        start_column          = 25
-        start_row             = 6
-      IMPORTING
-        answer                = lv_conf.
-
-    IF lv_conf = '1'.
-
-      lv_confirm = 1.
-
-    ELSE.
-
-      lv_confirm = 0.
-
-    ENDIF.
-
-  ELSE.
-
-    lv_confirm = 1.
-
-  ENDIF.
-
-ENDFORM.                    " CONFIRM_FIN
-*&---------------------------------------------------------------------*
-*&      Form  ACCESO_TABLAS
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM acceso_tablas .
-
-  DATA lv_index TYPE i.
-
-  REFRESH lt_t_1.
-  SELECT * FROM zfitprov
-           INTO CORRESPONDING FIELDS OF TABLE lt_t_1
-           WHERE  migr EQ 0 AND
-                  ( estado EQ 'E' OR ( estado EQ 'P' AND estdes EQ 'C' ) ) AND
-                  bukrs IN r_bukrs_aut AND
-                  fecha IN so_fecha.
-  IF NOT so_estad IS INITIAL.
-    LOOP AT lt_t_1 WHERE estado <> so_estad.
-      DELETE lt_t_1.
-    ENDLOOP.
-  ENDIF.
-  LOOP AT lt_t_1 WHERE NOT cod_enl IS INITIAL.
-
-    lt_t_1-hist = 'X'.
-    MODIFY lt_t_1.
-
-  ENDLOOP.
-
-
-ENDFORM.                    " ACCESO_TABLAS
-*&---------------------------------------------------------------------*
-*&      Form  ACCESO_TABLAS_M
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM acceso_tablas_m .
-
-  DATA lv_index TYPE i.
-
-  REFRESH lt_t_1.
-  SELECT * FROM zfitprov
-           INTO CORRESPONDING FIELDS OF TABLE lt_t_1
-           WHERE  migr NE 0 AND
-                ( estado EQ 'P' AND
-                  estdes EQ 'C' ) .
-
-ENDFORM.                    " ACCESO_TABLAS_M
-*&---------------------------------------------------------------------*
-*&      Form  TR_RECH_SOL
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_rech_sol USING VALUE(l_index).
-
-** ( 3 - 4 )
-* Info + State
-  MOVE-CORRESPONDING lt_t_1 TO zfitprov.
-  zfitprov-estado = 'R'.
-  CLEAR zfitprov-estdes..
-*
-
-** ( 3 )
-* Actualización
-  IF lt_t_1-estado = 'P'.
-    UPDATE zfitprov.
-  ENDIF.
-*
-
-** ( 4 )
-* Inicialización info central
-  IF lt_t_1-estado = 'E'.
-
-* Enlace
-    lv_cod_int = lv_cod_int + 1.
-    zfitprov-cod_int = lv_cod_int.
-    zfitprov-cod_enl = lt_t_1-cod_int.
-
-* Insert
-    INSERT zfitprov.
-
-* Paso a Historial
-    SELECT SINGLE * FROM zfitprov WHERE cod_int = lt_t_1-cod_int.
-    DELETE zfitprov.
-
-    zfitprovh = zfitprov.
-    INSERT zfitprovh.
-
-  ENDIF.
-
-* Entrada Dynpro
-  DELETE lt_t_1 INDEX l_index.
-
-ENDFORM.                    " TR_RECH_SOL
-*&---------------------------------------------------------------------*
-*&      Form  TR_GRABAR_SOL
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_grabar_sol USING VALUE(l_index).
-
-** ( 5 - 6 )
-* Info + State
-  MOVE-CORRESPONDING lt_t_1 TO zfitprov.
-  zfitprov-estado = 'P'.
-  zfitprov-estdes = 'C'.
-*
-
-** ( 5 )
-* Actualización
-  IF lt_t_1-estado = 'P'.
-    UPDATE zfitprov.
-  ENDIF.
-*
-
-** ( 6 )
-* Inicialización info central
-  IF lt_t_1-estado = 'E'.
-
-* Enlace
-    lv_cod_int = lv_cod_int + 1.
-    zfitprov-cod_int = lv_cod_int.
-    zfitprov-cod_enl = lt_t_1-cod_int.
-
-* Insert
-    INSERT zfitprov.
-
-* Paso a Historial
-    IF NOT lt_t_1-cod_int IS INITIAL.
-      SELECT SINGLE * FROM zfitprov WHERE cod_int = lt_t_1-cod_int.
-      DELETE zfitprov.
-
-      zfitprovh = zfitprov.
-      INSERT zfitprovh.
-    ENDIF.
-
-* Entrada Dynpro
-    lt_t_1-estado = 'P'.
-    lt_t_1-estdes = 'C'.
-    lt_t_1-cod_enl = lt_t_1-cod_int.
-    lt_t_1-cod_int = lv_cod_int.
-
-    MODIFY lt_t_1 INDEX l_index.
-
-  ENDIF.
-
-ENDFORM.                    " TR_GRABAR_SOL
-*&---------------------------------------------------------------------*
-*&      Form  TR_REFR
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_refr .
-
-  lv_ini = 0.
-
-ENDFORM.                    " TR_REFR
-*----------------------------------------------------------------------*
-*        Start new screen                                              *
-*----------------------------------------------------------------------*
-"BDC_DYNPRO
-
-*----------------------------------------------------------------------*
-*        Insert field                                                  *
-*----------------------------------------------------------------------*
-"BDC_FIELD
-
-*&---------------------------------------------------------------------*
-*&      Module  USER_COMMAND_9002  INPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-MODULE user_command_9002 INPUT.
-
-  IF sy-ucomm = 'ENTER' OR sy-ucomm = 'CANC'.
-
-    LEAVE TO SCREEN 0.
-
-  ENDIF.
-
-ENDMODULE.                 " USER_COMMAND_9002  INPUT
-*&---------------------------------------------------------------------*
-*&      Form  ACCESO_TABLAS_HIST
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM acceso_tablas_hist .
-
-  DATA lv_cod_enl LIKE zfitprovh-cod_enl.
-
-  REFRESH lt_t_2.
-  CLEAR lt_t_2.
-
-  lv_cod_enl = lt_t_1-cod_enl.
-
-  DO.
-
-    SELECT SINGLE * FROM zfitprovh WHERE cod_int EQ lv_cod_enl.
-    IF sy-subrc = 0.
-
-      APPEND zfitprovh TO lt_t_2.
-      lv_cod_enl = zfitprovh-cod_enl.
-
-    ELSE.
-
-      EXIT.
-
-    ENDIF.
-
-  ENDDO.
-
-ENDFORM.                    " ACCESO_TABLAS_HIST
-*&---------------------------------------------------------------------*
-*&      Form  TR_HIST
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_hist .
-
-  DATA lv_verif TYPE i.
-
-  DATA lv_index TYPE i.
-
-  LOOP AT lt_t_1 WHERE sele = 'X'.
-
-    lv_verif = lv_verif + 1.
-    lv_index = sy-tabix.
-
-  ENDLOOP.
-
-  CHECK lv_verif = 1.
-
-  READ TABLE lt_t_1 INDEX lv_index.
-
-  CHECK NOT lt_t_1-hist IS INITIAL.
-
-  lv_ini_h = 0.
-
-  CALL SCREEN '9002'
-            STARTING AT 10 10.
-
-ENDFORM.                    " TR_HIST
-*&---------------------------------------------------------------------*
-*&      Form  CARGA_MIGR_DYN
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM carga_migr_dyn .
-
-  DATA le_col TYPE cxtab_column.
-
-  LOOP AT t_1-cols INTO le_col.
-
-    IF le_col-screen-group1 = 'FUN'.
-
-      le_col-invisible = 1.
-      MODIFY t_1-cols FROM le_col.
-
+      MESSAGE s022(zfi01).
+      t_tblcli-estado = 'R'.
+      DELETE t_tblcli.
     ENDIF.
 
   ENDLOOP.
-
-ENDFORM.                    " CARGA_MIGR_DYN
-*&---------------------------------------------------------------------*
-*&      Form  CARGA_FUN_DYN
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM carga_fun_dyn .
-
-  DATA le_col TYPE cxtab_column.
-
-  LOOP AT t_1-cols INTO le_col.
-
-    IF le_col-screen-group1 = 'MIG'.
-
-      le_col-invisible = 1.
-      MODIFY t_1-cols FROM le_col.
-
-    ENDIF.
-
-  ENDLOOP.
-
-ENDFORM.                    " CARGA_FUN_DYN
-*&---------------------------------------------------------------------*
-*&      Form  TR_APROB_SOL_ACT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_aprob_sol_act  USING l_index.
-
-** ( 1 - 2 )
-* Info + State
-  MOVE-CORRESPONDING lt_t_1 TO zfitprov.
-  zfitprov-estado = 'A'.
-  CLEAR zfitprov-estdes..
-*
-
-** ( 1 )
-* Actualización
-  IF lt_t_1-estado = 'P'.
-    UPDATE zfitprov.
-  ENDIF.
-*
-
-** ( 2 )
-* Inicialización info central
-  IF lt_t_1-estado = 'E'.
-
-* Enlace
-    lv_cod_int = lv_cod_int + 1.
-    zfitprov-cod_int = lv_cod_int.
-    zfitprov-cod_enl = lt_t_1-cod_int.
-
-* Insert
-    INSERT zfitprov.
-
-* Paso a Historial
-    IF NOT lt_t_1-cod_int IS INITIAL.
-      SELECT SINGLE * FROM zfitprov WHERE cod_int = lt_t_1-cod_int.
-      DELETE zfitprov.
-
-      zfitprovh = zfitprov.
-      INSERT zfitprovh.
-    ENDIF.
-
-  ENDIF.
-
-* Entrada Dynpro
-  DELETE lt_t_1 INDEX l_index.
-
-ENDFORM.                    " TR_APROB_SOL_ACT
-*&---------------------------------------------------------------------*
-*&      Form  ACT_PROVNAV
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM act_provnav .
-
-  MOVE-CORRESPONDING lt_t_1 TO zfitprovnav.
-  MODIFY zfitprovnav.
-
-ENDFORM.                    " ACT_PROVNAV
-*&---------------------------------------------------------------------*
-*&      Form  ACCES_GR_SYNC
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM acces_gr_sync  TABLES t_bukrs.
-
-  SELECT SINGLE * FROM zfit_fiscal_fi WHERE bukrs = lt_t_1-bukrs.
-
-  IF NOT zfit_fiscal_fi-codgrsinc IS INITIAL.
-
-    SELECT * FROM zfit_fiscal_fi INTO CORRESPONDING FIELDS
-                                OF TABLE t_bukrs
-                                WHERE bukrs NE zfit_fiscal_fi-bukrs AND
-                                    codgrsinc EQ zfit_fiscal_fi-codgrsinc.
-  ENDIF.
-
-
-ENDFORM.                    " ACCES_GR_SYNC
-*&---------------------------------------------------------------------*
-*&      Form  MIG_ACCESS_SOC_ES
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM mig_access_soc_es  TABLES t_bukrs.
-
-  SELECT * FROM t001 INTO CORRESPONDING FIELDS
-                              OF TABLE t_bukrs
-                              WHERE bukrs NE lt_t_1-bukrs AND
-                                    land1 EQ 'ES'.
-
-ENDFORM.                    " MIG_ACCESS_SOC_ES
-*&---------------------------------------------------------------------*
-*&      Form  MIGR_SOC_MODL
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM migr_soc_modl USING VALUE(l_bukrs)
-                         VALUE(iv_index)
-                   CHANGING cv_aprob.
-
-  DATA lv_quest TYPE string.
-  DATA lv_conf(1).
-
-  DATA lv_subrc TYPE i.
-  DATA:
-    ls_prov    TYPE zfieprov,
-    lv_success TYPE abap_bool,
-    lv_message TYPE string.
-
-  SELECT SINGLE * FROM lfb1 WHERE bukrs = lt_t_1-bukrs AND
-                                  lifnr = lt_t_1-partner.
-
-  lv_subrc = sy-subrc.
-  IF lv_subrc = 0 AND lv_migr IS INITIAL..
-
-    MESSAGE TEXT-017 TYPE 'I'.
-
-    MOVE TEXT-018 TO lv_quest.
-    REPLACE '&1' WITH lt_t_1-bukrs INTO lv_quest.
-    REPLACE '&2' WITH lt_t_1-partner INTO lv_quest.
-
-    lt_t_1-error = lv_quest.
-    MODIFY lt_t_1 INDEX iv_index.
-
-    EXIT.
-
-  ENDIF.
-
-  IF lv_subrc = 0 AND NOT lv_migr IS INITIAL.
-
-    cv_aprob = 1.
-    EXIT.
-
-  ENDIF.
-
-  " Datos de la sociedad destino T_T_1-BUKRS ya contiene la sociedad a crear.
-  ls_prov = CORRESPONDING #( lt_t_1 ).
-
-  DATA(lo_bp) = NEW zcl_bp( ).
-
-  DATA(ls_result) = lo_bp->maintain_company_reference(
-  EXPORTING
-    iv_ref_bukrs = l_bukrs       " Sociedad modelo/origen
-  CHANGING
-    cs_prov      = ls_prov ).    " BUKRS = sociedad destino
-
-  lv_success = ls_result-success.
-  lv_message = ls_result-message.
-
-  IF lv_success = abap_true.
-    cv_aprob = 1.
-  ELSE.
-    CLEAR: cv_aprob.
-
-    lt_t_1-error = lv_message.
-    lt_t_1-bukrs = l_bukrs.
-    MODIFY lt_t_1 INDEX iv_index TRANSPORTING bukrs error.
-
-  ENDIF.
-
-ENDFORM.                    " MIGR_SOC_MODL
-*&---------------------------------------------------------------------*
-*&      Form  MIGR_SOC_MODIF
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM migr_soc_modif
-USING VALUE(iv_index)
-CHANGING cv_aprob.
-  DATA:
-    ls_prov   TYPE zfieprov,
-    ls_result TYPE ty_result.
-
-  CLEAR cv_aprob.
-  ls_prov = CORRESPONDING #( lt_t_1 ).
-
-  DATA(lo_bp) = NEW zcl_bp( ).
-
-  ls_result = lo_bp->maintain_company_update(
-  CHANGING  cs_prov = ls_prov ).
-
-  IF ls_result-success = abap_true.
-    cv_aprob = 1.
-  ELSE.
-    lt_t_1-error = ls_result-message.
-    MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
-  ENDIF.
-
-ENDFORM.                    " MIGR_SOC_MODIF
-*&---------------------------------------------------------------------*
-*&      Form  TR_MIGR_1
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_migr_1 .
-
-  IF NOT lv_migr IS INITIAL.
-
-    lv_migr = 1.
-
-    PERFORM carga_fich.
-
-    PERFORM entradas_fichero_1.
-
-  ENDIF.
-
-ENDFORM.                                                    " TR_MIGR_1
-*&---------------------------------------------------------------------*
-*&      Form  TR_MIGR_2
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_migr_2 .
-
-  IF NOT lv_migr IS INITIAL.
-
-    lv_migr = 2.
-
-    PERFORM carga_fich.
-
-    PERFORM entradas_fichero_2.
-
-  ENDIF.
-
-ENDFORM.                                                    " TR_MIGR_1
-*&---------------------------------------------------------------------*
-*&      Form  ENTRADAS_FICHERO_2
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM entradas_fichero_1.
-
-  DATA lt_t_1_cp LIKE zfieprov OCCURS 0 WITH HEADER LINE.
-  DATA lv_index TYPE i.
-  DATA lv_error TYPE i.
-  DATA lv_waers(3).
-
-  DO.
-
-    lv_index = lv_index + 1.
-    READ TABLE lt_fich INDEX lv_index.
-    IF sy-subrc <> 0 OR lt_fich-value IS INITIAL.
-
-      EXIT.
-
-    ENDIF.
-
-* Total entradas 31
-
-    lv_index = lv_index - 1.
-
-* Migracion
-    lt_t_1_cp-estado = 'E'.
-    lt_t_1_cp-migr = 1.
-
-* Sociedad
-    lt_t_1_cp-bukrs = '0001'.
-
-* Datos Navisión
-    PERFORM entradas_fich_navision CHANGING lt_t_1_cp lv_index.   " 4 + 3 entradas
-
-* Datos Generales
-    PERFORM entradas_fich_generales CHANGING lt_t_1_cp lv_index.   " 14 entradas
-
-* Datos Generales2
-    PERFORM entradas_fich_generales_2 CHANGING lt_t_1_cp lv_index.   " 3 entradas
-
-* Datos Sociedad tratamiento acreedor
-    PERFORM entradas_fich_sociedad CHANGING lt_t_1_cp lv_index.   " 15 entradas
-
-    APPEND lt_t_1_cp.
-
-  ENDDO.
-
-  IF lv_error = 1.
-
-    MESSAGE i201(zfi01).
-
-  ELSE.
-
-    APPEND LINES OF lt_t_1_cp TO lt_t_1.
-    lv_sup_d = 1.
-
-  ENDIF.
-
-ENDFORM.                    " ENTRADAS_FICHERO_1
-
-*&---------------------------------------------------------------------*
-*&      Form  ENTRADAS_FICHERO_2
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM entradas_fichero_2.
-
-  DATA lt_t_1_cp LIKE zfieprov OCCURS 0 WITH HEADER LINE.
-  DATA lv_index TYPE i.
-  DATA lv_error TYPE i.
-  DATA lv_waers(3).
-
-  DO.
-
-    lv_index = lv_index + 1.
-    READ TABLE lt_fich INDEX lv_index.
-    IF sy-subrc <> 0 OR lt_fich-value IS INITIAL.
-
-      EXIT.
-
-    ENDIF.
-
-* Total entradas 15
-
-    lv_index = lv_index - 1.
-
-* Migracion
-    lt_t_1_cp-estado = 'E'.
-    lt_t_1_cp-migr = 2.
-
-* Sociedad
-    PERFORM leer_lt_fich CHANGING lv_index lt_t_1_cp-bukrs.   " 1 entradas
-
-* Datos Navisión
-    PERFORM entradas_fich_navision CHANGING lt_t_1_cp lv_index.   " 4 entradas
-
-* Datos Sociedad tratamiento acreedor
-    PERFORM entradas_fich_sociedad CHANGING lt_t_1_cp lv_index.   " 10 entradas
-
-    APPEND lt_t_1_cp.
-
-  ENDDO.
-
-  IF lv_error = 1.
-
-    MESSAGE i201(zfi01).
-
-  ELSE.
-
-    APPEND LINES OF lt_t_1_cp TO lt_t_1.
-    lv_sup_d = 1.
-
-  ENDIF.
-
-ENDFORM.                    " ENTRADAS_FICHERO_2
-
-*&---------------------------------------------------------------------*
-*&      Form  LEER_LT_FICH
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM leer_lt_fich CHANGING l_index l_value.
-
-  l_index = l_index + 1.
-  READ TABLE lt_fich INDEX l_index.
-  IF lt_fich-value NE '-' AND lt_fich-value NE '.'.
-    l_value = lt_fich-value.
-  ENDIF.
-
-ENDFORM.                    " LEER_LT_FICH
-*&---------------------------------------------------------------------*
-*&      Form  ENTRADAS_FICH_NAVISION
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM entradas_fich_navision  CHANGING e_t_1 STRUCTURE zfieprov
-                             l_index.
-
-  DATA lv_null TYPE string.
-
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-zzprovenl.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-zzprovmas.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-zzprovnav.
-  PERFORM leer_lt_fich CHANGING l_index lv_null.          " DUPLICADO
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-zzsistmas.
-  PERFORM leer_lt_fich CHANGING l_index lv_null.          " PROV. MASTER
-  PERFORM leer_lt_fich CHANGING l_index lv_null.          " SIST. MASTER
-
-*  Montar campo ALTKT
-
-  IF NOT e_t_1-zzprovnav IS INITIAL.
-    CONCATENATE e_t_1-zzprovnav e_t_1-zzsistmas INTO e_t_1-altkt.
-  ELSE.
-    CONCATENATE e_t_1-zzprovmas e_t_1-zzsistmas INTO e_t_1-altkt.
-  ENDIF.
-
-*  Fecha migración
-
-  e_t_1-fecha = sy-datum.
-
-
-ENDFORM.                    " ENTRADAS_FICH_NAVISION
-*&---------------------------------------------------------------------*
-*&      Form  ENTRADAS_FICH_GENERALES
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM entradas_fich_generales  CHANGING e_t_1 STRUCTURE zfieprov
-                             l_index.
-
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-name1.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-name2.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-busq.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-direc.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-direc_2.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-cod_post.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-poblac.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-region.
-
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-pais.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-cif.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-tel.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-fax.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-smtp.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-spras.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-c_fisc_mx .
-
-ENDFORM.                    " ENTRADAS_FICH_GENERALES
-*&---------------------------------------------------------------------*
-*&      Form  ENTRADAS_FICH_GENERALES_2
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM entradas_fich_generales_2  CHANGING e_t_1 STRUCTURE zfieprov
-                             l_index.
-
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-bu_group.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-waers.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-xersy.
-
-ENDFORM.                    " ENTRADAS_FICH_GENERALES_2
-*&---------------------------------------------------------------------*
-*&      Form  ENTRADAS_FICH_SOCIEDAD
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM entradas_fich_sociedad  CHANGING e_t_1 STRUCTURE zfieprov
-                             l_index.
-
-  IF lv_migr = 1.
-
-    PERFORM leer_lt_fich CHANGING l_index e_t_1-bukrs.  " Sociedad
-
-  ENDIF.
-
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-akont.  " Cta. as.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-rcomp.  " S.G.L.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-fdgrv.  " Gr. tes
-
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-zterm.  " Cond. pago
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-zwels.  " Via pago
-
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-dzsabe_k. " Contac
-
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-pais_r.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-wt_withcd.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-bloq.
-  PERFORM leer_lt_fich CHANGING l_index e_t_1-bloqj.
-
-ENDFORM.                    " ENTRADAS_FICH_SOCIEDAD
-*&---------------------------------------------------------------------*
-*&      Form  CARGA_FICH
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM carga_fich .
-
-  DATA lv_end_col TYPE i.
-
-  IF lv_migr = 1.
-
-    lv_end_col = 36.
-
-  ELSE.
-
-    lv_end_col = 15.
-
-  ENDIF.
-
-  CALL FUNCTION 'WS_FILENAME_GET'
-    EXPORTING
-      def_filename     = '*.XLS'
-      def_path         = ' '
-      mask             = ' '
-      mode             = ' '
-      title            = ' '
-    IMPORTING
-      filename         = lv_fich
-*     RC               =
-    EXCEPTIONS
-      inv_winsys       = 1
-      no_batch         = 2
-      selection_cancel = 3
-      selection_error  = 4
-      OTHERS           = 5.
   IF sy-subrc <> 0.
+    MESSAGE w031(zfi01).
+  ENDIF.
 
-  ELSE.
+ENDFORM.                    " rechazarm
 
-    CALL FUNCTION 'ALSM_EXCEL_TO_INTERNAL_TABLE'
+*&---------------------------------------------------------------------*
+*&      Form  f_number_get_next_debitor
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_number_get_next_debitor CHANGING y_subrc.
+
+  DATA: lv_cliente_tmp(20) TYPE c.
+
+  CLEAR y_subrc.
+
+* Inicio modif Genis 19.07.2007
+*  IF t_tblcli-kunnr <> space.
+*    SELECT SINGLE cli_sap INTO t_tblcli-kunnrsap
+*                               FROM zficonv_cli_pms
+*                              WHERE cli_pms = t_tblcli-kunnr
+*                                AND hotel = t_tblcli-bukrs.
+*    IF sy-subrc <> 0.
+* Fin modif Genis 19.07.2007
+*  if t_tblcli-ktokd = 'ZTER'.
+  SELECT SINGLE * FROM nriv WHERE object = 'DEBITOR'
+                              AND nrrangenr = 'CU'.
+*  ELSEIF t_tblcli-ktokd = 'ZINT'.
+*  SELECT SINGLE * FROM nriv WHERE object = 'DEBITOR'
+*                              AND nrrangenr = 'ZI'.
+*  ENDIF.
+  IF nriv-nrlevel IS INITIAL.
+    nriv-nrlevel = nriv-fromnumber.
+*        t_tblcli-kunnrsap = nriv-fromnumber.
+    lv_cliente_tmp = nriv-fromnumber.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
       EXPORTING
-        filename                = lv_fich
-        i_begin_col             = 1
-        i_begin_row             = 2
-        i_end_col               = lv_end_col
-        i_end_row               = 20000
-      TABLES
-        intern                  = lt_fich
-      EXCEPTIONS
-        inconsistent_parameters = 1
-        upload_ole              = 2
-        OTHERS                  = 3.
-    IF sy-subrc <> 0.
-      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
-               WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
-    ENDIF.
-
-  ENDIF.
-
-ENDFORM.                    " CARGA_FICH
-*&---------------------------------------------------------------------*
-*&      Form  TR_ACRE
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_acre .
-
-  DATA lv_help_infos LIKE help_info.
-  DATA lt_dynpselect LIKE dselc OCCURS 0.
-  DATA lt_dynpvaluetab LIKE dval OCCURS 0.
-
-  lv_help_infos-tabname = 'ZFIEPROV'.
-  lv_help_infos-fieldname = 'PARTNER'.
-
-  lv_help_infos-call = 'V'.
-  lv_help_infos-object = 'F'.
-  lv_help_infos-program = 'ZFI0009'.
-  lv_help_infos-dynpro = '9001'.
-  lv_help_infos-tabname = 'ZFIEPROV'.
-  lv_help_infos-fieldname = 'PARTNER'.
-  lv_help_infos-fieldtype = 'CHAR'.
-  lv_help_infos-keyword = 'Acreedor'.
-  lv_help_infos-fieldlng = '10'.
-*  LV_HELP_INFOS-FLDVALUE
-*  LV_HELP_INFOS-MCOBJ
-  lv_help_infos-spras = 'S'.
-  lv_help_infos-menufunct = 'HC'.
-
-  CALL FUNCTION 'HELP_START'
-    EXPORTING
-      help_infos   = lv_help_infos
-*     PROPERTY_BAG =
-*   IMPORTING
-*     SELECTION    =
-*     SELECT_VALUE =
-*     RSMDY_RET    =
-    TABLES
-      dynpselect   = lt_dynpselect
-      dynpvaluetab = lt_dynpvaluetab.
-
-
-ENDFORM.                    " TR_ACRE
-*----------------------------------------------------------------------*
-***INCLUDE ZFI0009FRMBI1 .
-*----------------------------------------------------------------------*
-*&---------------------------------------------------------------------*
-*&      Form  TR_APROB_SOL
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_aprob_sol
-USING VALUE(iv_index)
-CHANGING cv_aprob.
-
-  DATA lv_ch TYPE i.
-  DATA: lv_lifnr   LIKE zfitprov-partner,
-        lv_success TYPE abap_bool,
-        lv_partner TYPE bu_partner,
-        lv_message TYPE string,
-        ls_prov    TYPE zfieprov.
-
-  IF NOT lv_migr IS INITIAL.
-* Migración
-    PERFORM crea_acreedor_conf_m CHANGING cv_aprob
-                                         lv_ch
-                                         lv_lifnr.
+        input  = lv_cliente_tmp
+      IMPORTING
+        output = t_tblcli-kunnrsap.
 
   ELSE.
-* Funcional
-    PERFORM crea_acreedor_conf_v2 CHANGING cv_aprob
-                                         lv_ch.
+*        t_tblcli-kunnrsap = nriv-nrlevel + 1.
+    lv_cliente_tmp = nriv-nrlevel + 1.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = lv_cliente_tmp
+      IMPORTING
+        output = t_tblcli-kunnrsap.
+    DO.
+      SELECT SINGLE * FROM kna1 WHERE kunnr = t_tblcli-kunnrsap.
+      IF sy-subrc = 0.
+*            t_tblcli-kunnrsap = t_tblcli-kunnrsap + 1.
+        lv_cliente_tmp = lv_cliente_tmp + 1.
+        CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+          EXPORTING
+            input  = lv_cliente_tmp
+          IMPORTING
+            output = t_tblcli-kunnrsap.
 
-  ENDIF.
-
-  CHECK NOT cv_aprob IS INITIAL.
-
-  CLEAR: cv_aprob, lt_t_1-error.
-
-  IF gv_lifnr IS NOT INITIAL.
-    lt_t_1-partner = gv_lifnr.
-  ENDIF.
-  ls_prov = CORRESPONDING #( lt_t_1 ).
-
-  PERFORM bp_maintain_request
-  CHANGING ls_prov lv_success lv_partner lv_message.
-
-  IF lv_success = abap_true.
-
-    cv_aprob = 1.
-
-    IF lv_partner IS INITIAL.
-      lv_partner = ls_prov-partner.
-    ENDIF.
-
-    lt_t_1-partner = lv_partner.
-    gv_lifnr       = lv_partner.
-
-    MODIFY lt_t_1 INDEX iv_index TRANSPORTING partner error.
-
-    IF lv_migr IS NOT INITIAL.
-      PERFORM act_provnav.
-    ENDIF.
-
-  ELSE.
-
-    CLEAR cv_aprob.
-    lt_t_1-error = lv_message.
-    MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
-
-  ENDIF.
-ENDFORM.                    " TR_APROB_SOL
-*&---------------------------------------------------------------------*
-*&      Form  MIGR_TR_APROB_SOL
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR_CONF
-*&---------------------------------------------------------------------*
-* FUNCIONALIDAD - HOTEL / CENTRAL
-* Verifica NIF y Sociedades creadas
-* APROB -> 1 : Usuario acepta en caso de mismo NIF y Sociedad
-* CH -> 1 : Mismo NIF y diferente Sociedad
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR_CONF_V2
-*&---------------------------------------------------------------------*
-* FUNCIONALIDAD - HOTEL / CENTRAL
-* Verifica NIF y Sociedades creadas
-* APROB -> 1 : Usuario acepta en caso de mismo NIF y Sociedad
-* CH -> 1 : Mismo NIF y diferente Sociedad
-*----------------------------------------------------------------------*
-FORM crea_acreedor_conf_v2 CHANGING l_ok TYPE i
-                                 l_ch TYPE i.
-
-  DATA lv_conf(1).
-
-  DATA lv_quest TYPE string.
-
-  IF NOT lt_t_1-partner IS INITIAL.
-
-    SELECT * UP TO 1 ROWS FROM lfa1 WHERE lifnr = lt_t_1-partner.
-    ENDSELECT.
-
-    IF sy-subrc <> 0.
-* No existe el acreedor LIFNR
-      MESSAGE i203(zfi01) WITH lt_t_1-partner.
-      EXIT.
-
-    ELSE.
-* Existe el acreedor LIFNR
-      l_ok = 1.
-      l_ch = 1.
-
-    ENDIF.
-
-  ELSE.
-
-    SELECT * UP TO 1 ROWS FROM lfa1 WHERE stcd1 = lt_t_1-cif.
-    ENDSELECT.
-
-    IF sy-subrc <> 0.
-* No existe acreedor con mismo CIF
-      l_ok = 1.
-
-    ELSE.
-      gv_lifnr = lfa1-lifnr.
-    ENDIF.
-
-  ENDIF.
-
-  CHECK l_ok IS INITIAL.
-* Existe acreedor con mismo CIF - Confirmación
-
-  MOVE TEXT-016 TO lv_quest.
-  REPLACE '&1' WITH lt_t_1-cif INTO lv_quest.
-
-  CALL FUNCTION 'POPUP_TO_CONFIRM'
-    EXPORTING
-      titlebar              = TEXT-015
-      text_question         = lv_quest
-      default_button        = '3'
-      display_cancel_button = 'X'
-      start_column          = 25
-      start_row             = 6
-    IMPORTING
-      answer                = lv_conf.
-
-  IF lv_conf = '1'.
-* Se crea un nuevo acreedor
-    l_ok = 1.
-    CLEAR gv_lifnr.
-  ELSEIF lv_conf = '2'.
-    l_ok = 1.
-  ELSEIF lv_conf = 'A'.
-    CLEAR gv_lifnr.
-  ENDIF.
-
-ENDFORM.                    " CREA_ACREEDOR_CONF_V2
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR_CONF_M
-*&---------------------------------------------------------------------*
-* FUNCIONALIDAD - HOTEL / CENTRAL
-* Verifica NIF y Sociedades creadas
-* OK -> 1 : MASTER
-* CH -> 1 : NO MASTER
-*----------------------------------------------------------------------*
-FORM crea_acreedor_conf_m CHANGING l_ok TYPE i
-                                 l_ch TYPE i
-                                 l_lifnr TYPE lifnr.
-
-  DATA lv_conf(1).
-
-  l_ok = 1.
-
-  CLEAR zfitprovnav.
-  SELECT * UP TO 1 ROWS FROM zfitprovnav WHERE zzprovenl = lt_t_1-zzprovenl.
-
-  ENDSELECT.
-  IF sy-subrc = 0.
-* Prov Master / Ya creado
-
-    l_ch = 1.  " El acreedor ya ha sido creado
-    lt_t_1-partner = zfitprovnav-partner.
-
-  ENDIF.
-
-ENDFORM.                    " CREA_ACREEDOR_CONF_M
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR_1
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR_2
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_SOCIEDAD_3
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  MODIF_SOCIEDAD_3
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CALL_TRANSACTION
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR_BANK
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_SOCIEDAD
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  MODIF_SOCIEDAD
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_SOCIEDAD_MOD
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR_3_
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_ACREEDOR_COMPRAS
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREA_SOCIEDAD_1
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  MODIF_SOCIEDAD_1
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  TR_BLOQ_SOC
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_bloq_soc
-USING VALUE(iv_index)
-CHANGING cv_aprob.
-
-  DATA:
-    ls_prov   TYPE zfieprov,
-    ls_result TYPE ty_result.
-
-  " Preparar proveedor/sociedad actual
-  ls_prov = CORRESPONDING #( lt_t_1 ).
-
-  " Bloquear contabilización en la sociedad actual
-  DATA(lo_bp) = NEW zcl_bp( ).
-
-  ls_result = lo_bp->maintain_company_block(
-  CHANGING cs_prov = ls_prov ).
-
-  IF ls_result-success = abap_true.
-    cv_aprob = 1.
-  ELSE.
-
-    CLEAR cv_aprob.
-    lt_t_1-error = ls_result-message.
-    MODIFY lt_t_1 INDEX iv_index TRANSPORTING error.
-  ENDIF.
-ENDFORM.                    " TR_BLOQ_SOC
-*&---------------------------------------------------------------------*
-*&      Form  TR_APROB_CONF_MODIF
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM tr_aprob_conf_modif .
-
-  DATA: lv_index TYPE i.
-  DATA: lv_aprob TYPE i.
-
-  PERFORM ini_cod_int.
-
-* Solicitudes seleccionados
-  LOOP AT lt_t_1 WHERE  sele = 'X' AND migr EQ 2.
-
-    lv_index = sy-tabix.
-    lv_aprob = 0.
-    lv_tot = lv_tot + 1.
-
-    CLEAR zfitprovnav.
-    SELECT * UP TO 1 ROWS FROM zfitprovnav WHERE zzprovenl = lt_t_1-zzprovenl.
-    ENDSELECT.
-
-    IF sy-subrc <> 0 OR zfitprovnav-partner IS INITIAL.
-
-      lt_t_1-error = |NO existe proveedor asociado a { lt_t_1-zzprovenl } en ZFITPROVNAV|.
-
-      MODIFY lt_t_1 INDEX lv_index TRANSPORTING error.
-
-      PERFORM tr_grabar_sol USING lv_index.
-
-      CONTINUE.
-
-    ENDIF.
-
-    lt_t_1-partner = zfitprovnav-partner.
-    PERFORM migr_soc_modif USING lv_index CHANGING lv_aprob.
-
-    IF NOT lt_t_1-bloq IS INITIAL AND lv_aprob IS INITIAL.
-* Bloqueo Sociedad
-      CLEAR lv_aprob.
-      PERFORM tr_bloq_soc USING lv_index CHANGING lv_aprob.
-    ENDIF.
-
-    IF lv_aprob IS INITIAL.
-
-      PERFORM tr_grabar_sol USING lv_index.
-
-    ELSE.
-
-      PERFORM tr_aprob_sol_act USING lv_index.
-      lv_totac = lv_totac + 1.
-
-    ENDIF.
-
-  ENDLOOP.
-
-  PERFORM fin_cod_int.
-
-ENDFORM.                    " TR_APROB_CONF_MODIF
-*&---------------------------------------------------------------------*
-*&      Form  TR_ACT_CALLE2
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  TEXTO_ERROR
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM texto_error  USING    l_edat
-                           l_txto
-                  CHANGING l_txt.
-
-  DATA le_dd04t LIKE dd04t.
-
-  SELECT * UP TO 1 ROWS FROM dd04t INTO le_dd04t
-                            WHERE rollname = l_edat AND
-*Marta: 27.11.2008 - inicio modificación - texto lengua del sistema
-*                                  ddlanguage = 'SY-LANGU' AND
-                                  ddlanguage = sy-langu AND
-*Marta: 27.11.2008 - fin modificación
-                                  as4local = 'A'
-                        ORDER BY as4vers DESCENDING.
-  ENDSELECT.
-
-  l_txt = l_txto.
-  REPLACE '&1' WITH le_dd04t-scrtext_m INTO l_txt.
-
-ENDFORM.                    " TEXTO_ERROR
-*&---------------------------------------------------------------------*
-*&      Form  TEXTO_ERROR_2
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM texto_error_2  USING    l_edat l_gr
-                             l_txto
-                    CHANGING l_txt.
-
-  DATA le_dd04t LIKE dd04t.
-
-  l_txt = l_txto.
-
-
-  SELECT * UP TO 1 ROWS FROM dd04t INTO le_dd04t
-                            WHERE rollname = l_edat AND
-*Marta: 27.11.2008 - inicio modificación - mensajes con la lengua que toca
-*                                  ddlanguage = 'SY-LANGU' AND
-                                  ddlanguage = sy-langu AND
-*Marta: 27.11.2008 - fin modificación
-                                  as4local = 'A'
-                        ORDER BY as4vers DESCENDING.
-  ENDSELECT.
-
-  REPLACE '&1' WITH le_dd04t-scrtext_m INTO l_txt.
-
-  REPLACE '&2' WITH l_gr INTO l_txt.
-
-ENDFORM.                    " TEXTO_ERROR_2
-*&---------------------------------------------------------------------*
-*&      Form  CHECK_BUKRS
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM check_bukrs  TABLES   t_bukrs
-                  USING    l_akont
-                  CHANGING l_fail
-                           l_txt.
-
-  DATA le_skb1 LIKE skb1.
-
-  LOOP AT t_bukrs.
-
-    SELECT SINGLE * FROM skb1 INTO le_skb1 WHERE bukrs = t_bukrs AND "#EC CI_DB_OPERATION_OK[2431747] " DTT ATC CORRECCION – 04/08/2026
-                                                 saknr = lt_t_1-akont.
-    IF NOT sy-subrc IS INITIAL.
-
-      l_fail = 1.
-      MOVE TEXT-023 TO l_txt.
-      REPLACE '&1' WITH t_bukrs INTO l_txt.
-      REPLACE '&2' WITH lt_t_1-akont INTO l_txt.
-      EXIT.
-
-    ENDIF.
-
-  ENDLOOP.
-
-ENDFORM.                    " CHECK_BUKRS
-*&---------------------------------------------------------------------*
-*&      Form  VERIF_RECH
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-FORM verif_rech .
-
-  LOOP AT lt_t_1 WHERE NOT sele IS INITIAL.
-
-    IF lt_t_1-comnt_c IS INITIAL.
-
-      lv_verif = sy-tabix.
-      PERFORM texto_error USING 'ZZECOMC' TEXT-027 CHANGING lv_verif_t.
-      EXIT.
-
-    ENDIF.
-
-  ENDLOOP.
-
-ENDFORM.                    " VERIF_RECH
-
-
-*&---------------------------------------------------------------------*
-*&      Form  llamar_dynpro
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-FORM llamar_dynpro .
-  CLEAR: r_bukrs_aut, r_bukrs_naut.
-  REFRESH: r_bukrs_aut, r_bukrs_naut.
-  IF sy-uname <> 'DLOPEZPEREZ'.
-    SELECT * FROM t001  WHERE bukrs IN so_bukrs.
-* valida permiso para la sociedad seleccionada
-      AUTHORITY-CHECK OBJECT 'ZAUT_BUKRS'
-      ID 'BUKRS' FIELD t001-bukrs
-      ID 'ACTVT' FIELD '03'.
-      IF sy-subrc <> 0.
-        r_bukrs_naut-sign = 'I'.
-        r_bukrs_naut-option = 'EQ'.
-        r_bukrs_naut-low = t001-bukrs.
-        APPEND r_bukrs_naut.
       ELSE.
-        r_bukrs_aut-sign = 'I'.
-        r_bukrs_aut-option = 'EQ'.
-        r_bukrs_aut-low = t001-bukrs.
-        APPEND r_bukrs_aut.
+        EXIT.
       ENDIF.
-    ENDSELECT.
-    IF NOT r_bukrs_naut[] IS INITIAL.
-      LOOP AT r_bukrs_naut.
-        MESSAGE i170(zfi01) WITH r_bukrs_naut-low.
-*   No dispone de autorización para la sociedad &.
+    ENDDO.
+    nriv-nrlevel = t_tblcli-kunnrsap.
+  ENDIF.
+  MODIFY nriv. "<---- MODIFICAR TABLA STD RANGO NÚMEROS CLIENTES
+* Inicio modif Genis 19.07.2007
+*    ELSE.
+*      lt_log-msgtyp = 'E'.
+*      lt_log-msgid = 'ZFI01'.
+*      lt_log-msgnr = '112'.
+*      lt_log-msgv1 = t_tblcli-kunnr.
+*      lt_log-msgv2 = t_tblcli-bukrs.
+*      APPEND lt_log.
+*      y_subrc = 4.
+*    ENDIF.
+*  ENDIF.
+* Fin modif Genis 19.07.2007
+
+ENDFORM.                    " f_number_get_next_debitor
+
+*&---------------------------------------------------------------------*
+*&      Form  f_bdc_create_unknowm_debitor
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_create_unknowm_debitor.
+
+  DATA: lv_vkorg2 TYPE vkorg,
+        lv_vtweg2 TYPE vtweg,
+        lv_spart2 TYPE spart,
+        lv_adrnr TYPE adrnr,
+        lv_name TYPE char40,
+        lv_errorbi(1) TYPE c.
+
+  DATA: lv_vkorg TYPE vkorg,
+        lv_vtweg TYPE vtweg,
+        lv_spart TYPE spart.
+
+  CLEAR  : bdcdata, lv_adrnr.
+  REFRESH: bdcdata.
+
+* PANTALLA INICIAL
+  PERFORM f_bdc_screen_0100_header USING '0100'.
+
+* ...si es necesario --> se crearán datos de Area de Ventas
+*  PERFORM f_bdc_screen_0100_ventas CHANGING lv_vkorg
+*                                            lv_vtweg
+*                                            lv_spart.
+
+*
+  IF t_tblcli-kunnrsap IS INITIAL.
+* -- CLIENTE DESCONOCIDO... HAY QUE CREARLO DE CERO ---------------------
+
+*   DATOS DE DIRECCIÓN
+    PERFORM f_bdc_screen_0111_address.
+
+*   DATOS DE CONTROL
+    PERFORM f_bdc_screen_0120_control.
+
+*   MARKETING
+    PERFORM f_bdc_screen_0125.
+
+*   PAGOS
+    PERFORM f_bdc_screen_0130_paymnt.
+
+*   PERSONA DE CONTACTO
+    PERFORM f_bdc_screen_0360_contact.
+  ELSE.
+* -- CLIENTE INFORMADO: HAY QUE AMPLIAR SOCIEDAD -------------------------
+    SELECT SINGLE * FROM zficonv_cli_pms WHERE cli_sap = t_tblcli-kunnrsap.
+    IF sy-subrc <> 0.
+*     DATOS DE DIRECCIÓN
+      PERFORM f_bdc_screen_0111_address.
+
+*     DATOS DE CONTROL
+      PERFORM f_bdc_screen_0120_control.
+
+*     MARKETING
+      PERFORM f_bdc_screen_0125.
+
+*     PAGOS
+      PERFORM f_bdc_screen_0130_paymnt.
+
+*     PERSONA DE CONTACTO
+      PERFORM f_bdc_screen_0360_contact.
+    ENDIF.
+  ENDIF.
+
+* GESTION DE CUENTA
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'0210'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-AKONT'.
+  PERFORM bdc_field       USING 'KNB1-AKONT'  t_tblcli-akont.
+*Ini JGOR 02.11.2017
+*  IF t_tblcli-ktokd <> '1020' AND t_tblcli-ktokd <> '1910' and
+*t_tblcli-ktokd <> '1010'."AAR 16.01.2012
+*    PERFORM bdc_field       USING 'KNB1-VZSKZ'  t_tblcli-vzskz.
+*  ENDIF.
+*Fin JGOR 02.11.2017
+  PERFORM bdc_field       USING 'KNB1-FDGRV'  t_tblcli-fdgrv.
+  PERFORM bdc_field       USING 'KNB1-ALTKN'  t_tblcli-altkn.
+  IF t_tblcli-ktokd = '1040'.
+    PERFORM bdc_field       USING 'KNB1-VZSKZ'  'Z1'.
+  ENDIF.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+* PAGOS
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'0215'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-ZTERM'.
+  PERFORM bdc_field       USING 'KNB1-ZTERM'  t_tblcli-zterm.
+  PERFORM bdc_field       USING 'KNB1-ZAHLS'  t_tblcli-zahls.
+  PERFORM bdc_field       USING 'KNB1-ZWELS'  t_tblcli-zwels.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+* CORRESPONDENCIA
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'0220'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB5-MAHNA'.
+  PERFORM bdc_field       USING 'KNB5-MAHNA'  t_tblcli-mahna.
+  PERFORM bdc_field       USING 'KNB1-BUSAB'  t_tblcli-busab.
+  PERFORM bdc_field       USING 'KNB5-MANSP'  t_tblcli-mansp.
+  PERFORM bdc_field       USING 'KNB5-KNRMA'  t_tblcli-knrma.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+* SEGUROS
+*  PERFORM bdc_dynpro       USING 'SAPMF02D'  '0230'.
+*  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-VRSNR'.
+*  PERFORM bdc_field       USING 'KNB1-VRSNR'  t_tblcli-vrsnr.
+*  PERFORM bdc_field       USING 'BDC_OKCODE'  '=00'.
+
+  IF t_tblcli-ktokd <> '1040'.
+* RETENCION DE IMPUESTOS
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0610'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNBW-WITHT(01)'.
+    PERFORM bdc_field       USING 'KNBW-WITHT(01)'  t_tblcli-witht.
+    PERFORM bdc_field       USING 'KNBW-WT_WITHCD(01)'  t_tblcli-wt_withcd.
+    PERFORM bdc_field       USING 'KNBW-WT_AGENT(01)'   t_tblcli-wt_agent.
+    IF NOT t_tblcli-wt_agtdf IS INITIAL.
+      CLEAR: ano, mes, dia.
+      ano = t_tblcli-wt_agtdf(4).
+      mes = t_tblcli-wt_agtdf+2(2).
+      dia = t_tblcli-wt_agtdf+4(2).
+      CLEAR t_tblcli-wt_agtdf.
+      CONCATENATE dia mes ano INTO t_tblcli-wt_agtdf.
+      PERFORM bdc_field       USING 'KNBW-WT_AGTDF(01)'	t_tblcli-wt_agtdf.
+      IF NOT t_tblcli-wt_agtdf IS INITIAL.
+        CLEAR: ano, mes, dia.
+        ano = t_tblcli-wt_agtdf+4(4).
+        mes = t_tblcli-wt_agtdf+2(2).
+        dia = t_tblcli-wt_agtdf(2).
+        CLEAR t_tblcli-wt_agtdf.
+        CONCATENATE ano mes dia INTO t_tblcli-wt_agtdf.
+      ENDIF.
+    ENDIF.
+    IF NOT t_tblcli-wt_agtdt IS INITIAL.
+      CLEAR: ano, mes, dia.
+      ano = t_tblcli-wt_agtdt(4).
+      mes = t_tblcli-wt_agtdt+2(2).
+      dia = t_tblcli-wt_agtdt+4(2).
+      CLEAR t_tblcli-wt_agtdt.
+      CONCATENATE dia mes ano INTO t_tblcli-wt_agtdt.
+      PERFORM bdc_field       USING 'KNBW-WT_AGTDT(01)'	t_tblcli-wt_agtdt.
+      IF NOT t_tblcli-wt_agtdt IS INITIAL.
+        CLEAR: ano, mes, dia.
+        ano = t_tblcli-wt_agtdt+4(4).
+        mes = t_tblcli-wt_agtdt+2(2).
+        dia = t_tblcli-wt_agtdt(2).
+        CLEAR t_tblcli-wt_agtdt.
+        CONCATENATE ano mes dia INTO t_tblcli-wt_agtdt.
+      ENDIF.
+    ENDIF.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0610'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNBW-WITHT(01)'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '=AO02'."'=AO01'.JGOR 02.11.2017
+  ENDIF.
+
+  IF NOT lv_vkorg IS INITIAL AND
+     NOT lv_vtweg IS INITIAL AND
+     NOT lv_spart IS INITIAL.
+
+*   DATOS AREA DE VENTAS
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0310'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVV-KALKS'.
+    PERFORM bdc_field       USING 'KNVV-BZIRK'  t_tblcli-bzirk.
+    PERFORM bdc_field       USING 'KNVV-VKBUR'  t_tblcli-vkbur.
+    PERFORM bdc_field       USING 'KNVV-VKGRP'  t_tblcli-vkgrp.
+    PERFORM bdc_field       USING 'KNVV-KDGRP'  t_tblcli-kdgrp.
+    PERFORM bdc_field       USING 'KNVV-WAERS'  t_tblcli-waersd.
+    IF t_tblcli-ktokd <> '1040'. " AND t_tblcli-ktokd <> 'ZINT'.
+      PERFORM bdc_field       USING 'KNVV-KONDA'  t_tblcli-konda.
+    ENDIF.
+    PERFORM bdc_field       USING 'KNVV-PVKSM'  t_tblcli-pvksm.
+    PERFORM bdc_field       USING 'KNVV-VSORT'  t_tblcli-vsort.
+    PERFORM bdc_field       USING 'KNVV-KALKS'  '2'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0320'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVV-KTGRD'.
+    PERFORM bdc_field       USING 'KNVV-KTGRD'  '01'.
+    PERFORM bdc_field       USING 'KNVV-ZTERM'  t_tblcli-zterm.
+    PERFORM bdc_field       USING 'KNVV-INCO1'  t_tblcli-inco1.
+    PERFORM bdc_field       USING 'KNVV-MRNKZ'  t_tblcli-mrnkz.
+    PERFORM bdc_field       USING 'KNVV-PERFK'  t_tblcli-perfk.
+    PERFORM bdc_field       USING 'KNVV-PERRL'  t_tblcli-perrl.
+    PERFORM bdc_field       USING 'KNVV-BOKRE'  t_tblcli-bokre.
+    PERFORM bdc_field       USING 'KNVV-PRFRE'  t_tblcli-prfre.
+
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'1350'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVI-TAXKD(01)'.
+    PERFORM bdc_field       USING 'KNVI-TAXKD(01)'  '1'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '=ENTR'.
+
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'1350'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVI-TAXKD(01)'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '=ENTR'.
+
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0324'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'RF02D-KUNNR'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+  ENDIF.
+
+* DATOS ADICIONALES
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'4000'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-WAERS'.
+  IF t_tblcli-waers IS INITIAL.
+    SELECT SINGLE waers FROM t001 INTO t_tblcli-waers WHERE bukrs = t_tblcli-bukrs.
+  ENDIF.
+  PERFORM bdc_field       USING 'KNB1-WAERS'  t_tblcli-waers.
+  PERFORM bdc_field       USING 'KNB1-SIRENHA'  t_tblcli-sirenha.
+  PERFORM bdc_field       USING 'KNB1-MODOCOM'  t_tblcli-modocom.
+  PERFORM bdc_field       USING 'KNB1-MAIL2'  t_tblcli-mail2.
+  IF NOT t_tblcli-direc2 IS INITIAL.
+    PERFORM bdc_field       USING 'KNB1-DIREC2'	t_tblcli-direc2.
+  ELSE.
+    PERFORM bdc_field       USING 'KNB1-DIREC2'	t_tblcli-direc1.
+  ENDIF.
+  IF NOT t_tblcli-poblac2 IS INITIAL.
+    PERFORM bdc_field       USING 'KNB1-POBLAC2'  t_tblcli-poblac2.
+  ELSE.
+    PERFORM bdc_field       USING 'KNB1-POBLAC2'  t_tblcli-poblac1.
+  ENDIF.
+  IF NOT t_tblcli-cod_post2 IS INITIAL.
+    PERFORM bdc_field       USING 'KNB1-COD_POST2'  t_tblcli-cod_post2.
+  ELSE.
+    PERFORM bdc_field       USING 'KNB1-COD_POST2'  t_tblcli-cod_post.
+  ENDIF.
+  IF NOT t_tblcli-pais2 IS INITIAL.
+    PERFORM bdc_field       USING 'KNB1-PAIS2'  t_tblcli-pais2.
+  ELSE.
+    PERFORM bdc_field       USING 'KNB1-PAIS2'  t_tblcli-pais.
+  ENDIF.
+
+  PERFORM bdc_field       USING 'KNB1-ZZNCFTC'  t_tblcli-zzncftc.
+
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '=UPDA'.
+
+
+* LLAMADA A LA CREACIÓN DE CLIENTE
+  CALL TRANSACTION 'XD01' USING bdcdata
+    MODE p_ctmode
+    UPDATE 'S'
+    MESSAGES INTO messtab.
+
+  CLEAR: lv_errorbi.
+*Ini JGOR 02.11.2017
+*  IF sy-subrc <> 0.
+*    lv_errorbi = 'X'.
+*  ENDIF.
+*Fin JGOR 02.11.2017
+  DELETE messtab WHERE msgid = 'ZFI01'.
+  DELETE messtab WHERE msgid = 'F2' AND msgnr = '036'.
+
+  LOOP AT messtab.
+    AT FIRST.
+      LOOP AT messtab WHERE msgtyp = 'E'.
       ENDLOOP.
-    ENDIF.
-    IF r_bukrs_aut[] IS INITIAL.
-      LEAVE PROGRAM.
-    ENDIF.
-  ENDIF.
-  CALL SCREEN '9001'.
-
-
-ENDFORM.                    " llamar_dynpro
-*&---------------------------------------------------------------------*
-*&      Form  HELP_KNB1_ZWELS
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-FORM help_knb1_zwels .
-  CALL SCREEN 1215 STARTING AT 03 01 ENDING AT 80 25.
-ENDFORM.                    " HELP_KNB1_ZWELS
-*&---------------------------------------------------------------------*
-*&      Form  set_pf_status
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*      -->P_EXCTAB  text
-*      -->P_0376   text
-*      -->P_0377   text
-*----------------------------------------------------------------------*
-FORM set_pf_status TABLES   p_exctab
-                   USING    p_pfkey     LIKE sy-pfkey
-                            p_withexcl.
-
-* Ausnahmen Betriebestamm
-  PERFORM exceptions_site TABLES p_exctab
-                          USING p_pfkey.
-
-  IF p_withexcl IS INITIAL.
-    SET PF-STATUS p_pfkey OF PROGRAM 'ZFI0009'.
-  ELSE.
-    SET PF-STATUS p_pfkey OF PROGRAM 'ZFI0009'
-                          EXCLUDING p_exctab.
-  ENDIF.
-ENDFORM.                    " set_pf_status
-*&---------------------------------------------------------------------*
-*&      Form  EXCEPTIONS_SITE
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*      -->P_P_EXCTAB  text
-*      -->P_P_PFKEY  text
-*----------------------------------------------------------------------*
-FORM exceptions_site TABLES   p_exctab
-                     USING    p_pfkey  LIKE sy-pfkey.
-
-  DATA: s_exctab LIKE tabstrip_extab OCCURS 10 WITH HEADER LINE.
-  DATA: s_pfkey LIKE sy-pfkey.
-
-  CHECK NOT debi_call IS INITIAL.
-  s_exctab[] = p_exctab[].
-
-  s_pfkey = p_pfkey.
-  IF s_pfkey(3) = '340'.
-    READ TABLE s_exctab WITH KEY okcode = 'ABTE'.
-    IF sy-subrc NE 0.
-      s_exctab-okcode = 'ABTE'. APPEND s_exctab.
-    ENDIF.
-
-    READ TABLE s_exctab WITH KEY okcode = 'EMPF'.
-    IF sy-subrc NE 0.
-      s_exctab-okcode = 'EMPF'. APPEND s_exctab.
-    ENDIF.
-  ENDIF.
-
-  p_exctab[] = s_exctab[].
-ENDFORM.                    " EXCEPTIONS_SITE
-*&---------------------------------------------------------------------*
-*&      Form  FENSTER_BLAETTERN
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-FORM fenster_blaettern .
-  CASE ok-code.
-    WHEN 'P-- '.
-      CLEAR ok-code.
-      index = 1.
-      SET SCREEN sy-dynnr.
-      LEAVE SCREEN.
-    WHEN 'P-  '.
-      CLEAR ok-code.
-      index = index - loopc.
-      IF index LT 1.
-        index = 1.
-      ENDIF.
-      SET SCREEN sy-dynnr.
-      LEAVE SCREEN.
-    WHEN 'P+  '.
-      CLEAR ok-code.
-      index = index + loopc.
-      IF index GT tfill.
-        index = index - loopc.
-      ENDIF.
-      SET SCREEN sy-dynnr.
-      LEAVE SCREEN.
-    WHEN 'P++ '.
-      CLEAR ok-code.
-      IF tfill LE loopc.
-        index = 1.
+      IF sy-subrc = 0 OR lv_errorbi = 'X'.
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '080'.
+        lt_log-msgv1 = t_tblcli-kunnr.
+        APPEND lt_log.
       ELSE.
-        index = tfill - loopc + 1.
+        lt_log-msgtyp = 'S'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '080'.
+        lt_log-msgv1 = t_tblcli-kunnr.
+        APPEND lt_log.
       ENDIF.
-      SET SCREEN sy-dynnr.
-      LEAVE SCREEN.
-    WHEN OTHERS.
-      CLEAR ok-code.
-  ENDCASE.
-ENDFORM.                    " FENSTER_BLAETTERN
-*&---------------------------------------------------------------------*
-*&      Module  OKCODE_ENTER  INPUT
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-MODULE okcode_enter INPUT.
-  IF ok-code = 'ENTR'.
-    CLEAR ok-code.
-  ENDIF.
-ENDMODULE.                 " OKCODE_ENTER  INPUT
-*&---------------------------------------------------------------------*
-*&      Form  crea_sociedad_5000
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  crea_acreedor_8300
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*      <--P_L_APROB  text
-*      <--P_LV_MESS  text
-*      <--P_LV_LIFNR  text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  crea_acreedor_8300_1
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  crea_acreedor_8300_2
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  crea_acreedor_8300_bank
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  crea_acreedor_8300_3
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  crea_sociedad_8300
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*      <--P_L_APROB  text
-*      <--P_LV_MESS  text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  crea_sociedad_1_8300
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  crear_sociedad_1_5000
-*&---------------------------------------------------------------------*
-*       Crear un proveedor en la sociedad 5000 cuando no hay
-*       organización de compras
-*----------------------------------------------------------------------*
-*  -->  p1        text
-*  <--  p2        text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  CREAR_SOCIEDAD_SINCRONIZACION
-*&---------------------------------------------------------------------*
-*  Autor: Marta Vall Armengol
-*  Fecha: 16.10.2008
-*----------------------------------------------------------------------*
-*      -->P_LV_LIFNR  text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  ACTUALIZA_MAIL
-*&---------------------------------------------------------------------*
-*       Actualiza mail
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  ADDR_COMM_GET
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-*&---------------------------------------------------------------------*
-*&      Form  addr_comm_maintain
-*&---------------------------------------------------------------------*
-*       text
-*----------------------------------------------------------------------*
-
-
-*&---------------------------------------------------------------------*
-*&      Form  DERIVAR_AKONT
-*&---------------------------------------------------------------------*
-*       Deriva la cuenta asociada desde la configuración de BP.
-*----------------------------------------------------------------------*
-FORM derivar_akont CHANGING cs_prov STRUCTURE zfieprov.
-
-  DATA:
-        ls_ztbp001 TYPE ztbp001.
-
-  CLEAR cs_prov-akont.
-  CHECK cs_prov-bukrs IS NOT INITIAL.
-  CHECK cs_prov-pais IS NOT INITIAL.
-
-  SELECT SINGLE land1
-  FROM t001
-  INTO @DATA(lv_land1)
-  WHERE bukrs = @cs_prov-bukrs.
-
-  IF sy-subrc = 0.
-    IF cs_prov-pais = lv_land1 AND cs_prov-bu_group <> 'ZINT'.
-      ls_ztbp001-nac_ext = 'N'.
-      CLEAR: ls_ztbp001-bu_group.
-    ELSEIF cs_prov-pais <> lv_land1 AND cs_prov-bu_group <> 'ZINT'.
-      ls_ztbp001-nac_ext = 'E'.
-      CLEAR: ls_ztbp001-bu_group.
-    ELSEIF cs_prov-pais = lv_land1 AND cs_prov-bu_group = 'ZINT'.
-      ls_ztbp001-nac_ext = 'N'.
-      ls_ztbp001-bu_group = 'ZINT'.
-    ELSEIF cs_prov-pais <> lv_land1 AND cs_prov-bu_group = 'ZINT'.
-      ls_ztbp001-nac_ext = 'E'.
-      ls_ztbp001-bu_group = 'ZINT'.
-    ENDIF.
-  ENDIF.
-
-  SELECT SINGLE hkont
-  FROM ztbp001
-  INTO @cs_prov-akont
-  WHERE koart    = 'K'
-  AND bu_group = @ls_ztbp001-bu_group
-  AND nac_ext  = @ls_ztbp001-nac_ext.
-
-ENDFORM.                    " DERIVAR_AKONT
-
-*&---------------------------------------------------------------------*
-*& Include          ZFI0009CLS
-*&---------------------------------------------------------------------*
-CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
-
-  PUBLIC SECTION.
-
-    METHODS maintain_bp
-      CHANGING
-        cs_prov          TYPE zfieprov
-      RETURNING
-        VALUE(rs_result) TYPE ty_result.
-
-    METHODS maintain_company_reference
+    ENDAT.
+    MOVE-CORRESPONDING messtab TO lt_log.
+    APPEND lt_log.
+  ENDLOOP.
+*aayala recuperamos el numero de cliente nuevo 29.12.2011
+* Tratamos de obtener el número de CLIENTE desde el STD
+  DATA lv_kunnr TYPE kunnr.
+  CLEAR lv_kunnr.
+** 1. A través de la tabla de mensajes
+  LOOP AT messtab
+    WHERE msgid = 'F2'
+    OR    msgnr = '171'    "Sociedad
+    OR    msgnr = '172'    "Area de Ventas
+    AND   msgnr = '174'.    "Sociedad/Area de Ventas
+*      MESSAGE S171(F2).
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+      EXPORTING
+        input  = messtab-msgv1(10) "ALML 27.10.2014(solo tomar 10 caract)
       IMPORTING
-        iv_ref_bukrs     TYPE bukrs
-      CHANGING
-        cs_prov          TYPE zfieprov
-      RETURNING
-        VALUE(rs_result) TYPE ty_result.
+        output = lv_kunnr.
 
-    METHODS maintain_company_block
-      CHANGING
-        cs_prov          TYPE zfieprov
-      RETURNING
-        VALUE(rs_result) TYPE ty_result.
+  ENDLOOP.
 
-    METHODS maintain_company_update
-      CHANGING
-        cs_prov          TYPE zfieprov
-      RETURNING
-        VALUE(rs_result) TYPE ty_result.
-
-
-  PRIVATE SECTION.
-
-    METHODS determine_context
-      CHANGING
-        cs_prov           TYPE zfieprov
-      RETURNING
-        VALUE(rs_context) TYPE ty_context.
-
-    METHODS map_bp_data
-      CHANGING
-        cs_prov    TYPE zfieprov
-        cs_context TYPE ty_context
-        cs_data    TYPE cvis_ei_extern.
-
-    METHODS map_roles
-      CHANGING
-        cs_prov TYPE zfieprov
-        cs_data TYPE cvis_ei_extern.
-
-    METHODS map_tax_numbers
-      CHANGING
-        cs_prov TYPE zfieprov
-        cs_data TYPE cvis_ei_extern.
-
-    METHODS map_tax_number
-      IMPORTING
-        iv_extended TYPE c
-      CHANGING
-        cs_prov     TYPE zfieprov
-        cv_taxtype  TYPE dfkkbptaxnum-taxtype
-        cv_value    TYPE string
-        cs_data     TYPE cvis_ei_extern.
-
-    METHODS map_bp_address
-      CHANGING
-        cs_prov    TYPE zfieprov
-        cs_context TYPE ty_context
-        cs_data    TYPE cvis_ei_extern.
-
-    METHODS map_bp_communication
-      CHANGING
-        cs_prov    TYPE zfieprov
-        cs_address TYPE bus_ei_bupa_address.
-
-    METHODS map_industry
-      CHANGING
-        cs_prov TYPE zfieprov
-        cs_data TYPE cvis_ei_extern.
-
-    METHODS map_bank_data
-      CHANGING
-        cs_prov    TYPE zfieprov
-        cs_context TYPE ty_context
-        cs_data    TYPE cvis_ei_extern.
-
-    METHODS ensure_bank_master
-      CHANGING
-        cs_prov          TYPE zfieprov
-      RETURNING
-        VALUE(rs_return) TYPE bapiret2.
-
-    METHODS map_withholding_tax
-      CHANGING
-        cs_prov    TYPE zfieprov
-        cs_company TYPE vmds_ei_company.
-
-    METHODS map_company_data
-      CHANGING
-        cs_prov TYPE zfieprov
-        cv_task TYPE c
-        cs_data TYPE cvis_ei_extern.
-
-    METHODS map_purchasing_data
-      CHANGING
-        cs_prov TYPE zfieprov
-        cv_task TYPE c
-        cs_data TYPE cvis_ei_extern.
-
-    METHODS map_purchasing_functions
-      CHANGING
-        cs_prov       TYPE zfieprov
-        cs_purchasing TYPE vmds_ei_purchasing.
-
-    METHODS map_contact_person
-      CHANGING
-        cs_prov    TYPE zfieprov
-        cs_context TYPE ty_context
-        cs_data    TYPE cvis_ei_extern.
-
-    METHODS call_api
-      IMPORTING
-        is_data          TYPE cvis_ei_extern
-      RETURNING
-        VALUE(rt_return) TYPE bapiretm.
-
-    METHODS evaluate_return
-      IMPORTING
-        it_return        TYPE bapiretm
-      RETURNING
-        VALUE(cs_result) TYPE ty_result.
-
-ENDCLASS.
-CLASS zcl_bp IMPLEMENTATION.
-
-  METHOD determine_context.
-
-    rs_context-valid = abap_true.
-
-    " BP NUEVO
-    IF cs_prov-partner IS INITIAL.
-
-      rs_context-bp_task         = gc_task_insert.
-      rs_context-vendor_task     = gc_task_insert.
-      rs_context-address_task    = gc_task_insert.
-      rs_context-company_task    = gc_task_insert.
-      rs_context-purchasing_task = gc_task_insert.
-
-      " GUID técnico del nuevo BP
-      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
-      RECEIVING uuid = rs_context-partner_guid ).
-
-      " GUID de la dirección estándar
-      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
-      RECEIVING uuid = rs_context-address_guid ).
-
-      RETURN.
+  READ TABLE lt_log WITH KEY msgtyp = 'E'.
+  IF sy-subrc <> 0.
+*   Damos de alta el registro en la tabla de mapeos pms-sap
+    zficonv_cli_pms-hotel = t_tblcli-bukrs.
+    zficonv_cli_pms-cli_pms = t_tblcli-kunnr.
+*aayala recuperamos el numero de cliente nuevo 29.12.2011
+    IF t_tblcli-kunnrsap IS INITIAL.
+      t_tblcli-kunnrsap =  lv_kunnr.
     ENDIF.
+*aayala recuperamos el numero de cliente nuevo 29.12.2011
+    zficonv_cli_pms-cli_sap = t_tblcli-kunnrsap.
 
-    " BP EXISTENTE
-    SELECT SINGLE  partner_guid, bu_group
-    FROM but000
-    WHERE partner = @cs_prov-partner
-    INTO @DATA(ls_but000).
+* Inicio modif Genis 19.07.2007
+    GET PARAMETER ID 'KUN' FIELD zficonv_cli_pms-cli_sap.
+* Fin modif Genis 19.07.2007
 
-    IF sy-subrc <> 0.
-      rs_context-valid = abap_false.
-      rs_context-message = |El Business Partner { cs_prov-partner } NO existe|.
-
-      RETURN.
+    IF NOT zficonv_cli_pms-cli_pms IS INITIAL.
+      IF p_new IS INITIAL.
+        INSERT zficonv_cli_pms.
+      ENDIF.
     ENDIF.
-
-    rs_context-bp_task      = gc_task_update.
-    rs_context-partner_guid = ls_but000-partner_guid.
-
-    " La agrupación de un BP existente no se cambia
-    IF cs_prov-bu_group IS NOT INITIAL
-    AND ls_but000-bu_group <> cs_prov-bu_group.
-
-      rs_context-valid = abap_false.
-
-      rs_context-message = |El BP { cs_prov-partner } pertenece a la agrupación | &&
-      |{ ls_but000-bu_group }, NO a { cs_prov-bu_group }|.
-
-      RETURN.
+    t_tblcli-estado = 'V'.
+    SELECT SINGLE ddtext FROM dd07v INTO t_tblcli-estadot
+                  WHERE domname = 'ZZDCLIEST'
+                    AND ddlanguage = sy-langu
+                    AND domvalue_l = t_tblcli-estado.
+    t_tblcli-sel = ''.
+    MODIFY t_tblcli.
+    MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+    IF p_new IS INITIAL.
+      MODIFY zfit_sol_cliente.
     ENDIF.
+***      Actualizamos campos no actualizables por batch input
+    SELECT SINGLE adrnr INTO lv_adrnr FROM kna1 WHERE kunnr = t_tblcli-kunnrsap.
 
-    " Supplier existente o nueva extensión Supplier
-    SELECT SINGLE ktokk FROM lfa1
-    WHERE lifnr = @cs_prov-partner
-    INTO @DATA(lv_ktokk).
-
+    SELECT SINGLE * FROM adr6 WHERE addrnumber = lv_adrnr.
     IF sy-subrc = 0.
-
-      rs_context-vendor_task = gc_task_update.
-
-      " El grupo de cuentas tampoco debe cambiarse silenciosamente
-      IF cs_prov-bu_group IS NOT INITIAL AND lv_ktokk <> cs_prov-bu_group.
-
-        rs_context-valid = abap_false.
-
-        rs_context-message = |El proveedor { cs_prov-partner } tiene grupo de cuentas | &&
-        |{ lv_ktokk }, NO { cs_prov-bu_group }|.
-
-        RETURN.
-      ENDIF.
-
-    ELSE.
-      " BP existe, pero todavía no existe como Supplier
-      rs_context-vendor_task = gc_task_insert.
+      adr6-smtp_addr = t_tblcli-mail.
+      MODIFY adr6.
+    ENDIF.
+    SELECT SINGLE * FROM adrc WHERE addrnumber = lv_adrnr.
+    IF sy-subrc = 0.
+      adrc-str_suppl1 = t_tblcli-direc2.
+      adrc-house_num1 = t_tblcli-house_num1.
+      adrc-city2 = t_tblcli-poblac2.
+      MODIFY adrc.
     ENDIF.
 
-    " Dirección actual
-    SELECT address_guid, addr_valid_to
-    FROM but020
-    WHERE partner = @cs_prov-partner
-    INTO TABLE @DATA(lt_addresses).
+  ENDIF.
+  CLEAR messtab.
+  REFRESH messtab.
 
-    IF lt_addresses IS NOT INITIAL.
+ENDFORM.                    " f_bdc_create_unknowm_debitor
 
-      SORT lt_addresses BY addr_valid_to DESCENDING.
+*&---------------------------------------------------------------------*
+*&      Form  f_bdc_create_known_debitor
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_create_known_debitor.
 
-      rs_context-address_guid =  lt_addresses[ 1 ]-address_guid.
-      rs_context-address_task = gc_task_update.
+  DATA: lv_vkorg2 TYPE vkorg,
+        lv_vtweg2 TYPE vtweg,
+        lv_spart2 TYPE spart,
+        lv_adrnr TYPE adrnr,
+        lv_name TYPE char40.
 
-    ELSE.
+  DATA: lv_vkorg TYPE vkorg,
+        lv_vtweg TYPE vtweg,
+        lv_spart TYPE spart.
 
-      rs_context-address_task = gc_task_insert.
-      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
-      RECEIVING uuid = rs_context-address_guid ).
+
+  CLEAR  : bdcdata, lv_vkorg, lv_vtweg, lv_spart, lv_vkorg2,
+           lv_vtweg2, lv_spart2, lv_adrnr, lv_name.
+  REFRESH: bdcdata.
+
+* PANTALLA INICIAL
+  PERFORM f_bdc_screen_0100_header USING '0100'.
+
+* ...si es necesario, se crearán datos de Area de Ventas
+  PERFORM f_bdc_screen_0100_ventas CHANGING lv_vkorg
+                                            lv_vtweg
+                                            lv_spart.
+
+
+  SELECT SINGLE * FROM knb1 WHERE kunnr = t_tblcli-kunnrsap.
+  IF sy-subrc <> 0.
+* Si no está creado el cliente para ninguna Sociedad:
+* DATOS GENERALES
+
+*   DATOS DE DIRECCIÓN
+    PERFORM f_bdc_screen_0111_address.
+
+*   DATOS DE CONTROL
+    PERFORM f_bdc_screen_0120_control.
+
+*   PAGOS
+    PERFORM f_bdc_screen_0130_paymnt.
+
+*   PERSONA DE CONTACTO
+    PERFORM f_bdc_screen_0360_contact.
+
+  ENDIF.
+
+* Inicio modif. Genis 19.07.2007
+  PERFORM f_bdc_datos_sociedad.
+* Fin modif. Genis 19.07.2007
+
+** DATOS SOCIEDAD
+*  PERFORM bdc_dynpro       USING 'SAPMF02D'  '0210'.
+*  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-AKONT'.
+*  PERFORM bdc_field       USING 'KNB1-AKONT'  t_tblcli-akont.
+*  PERFORM bdc_field       USING 'KNB1-FDGRV'  t_tblcli-fdgrv.
+*  PERFORM bdc_field       USING 'KNB1-ALTKN'  t_tblcli-altkn.
+*  IF t_tblcli-ktokd = 'ZINT'.
+*    PERFORM bdc_field       USING 'KNB1-VZSKZ'  'Z1'.
+*  ENDIF.
+*  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+*
+*  PERFORM bdc_dynpro       USING 'SAPMF02D'  '0215'.
+*  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-ZTERM'.
+*  PERFORM bdc_field       USING 'KNB1-ZTERM'  t_tblcli-zterm.
+*  PERFORM bdc_field       USING 'KNB1-ZAHLS'  t_tblcli-zahls.
+*  PERFORM bdc_field       USING 'KNB1-ZWELS'  t_tblcli-zwels.
+*  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+*
+*  PERFORM bdc_dynpro       USING 'SAPMF02D'  '0220'.
+*  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB5-MAHNA'.
+*  PERFORM bdc_field       USING 'KNB5-MAHNA'  t_tblcli-mahna.
+*  PERFORM bdc_field       USING 'KNB1-BUSAB'  t_tblcli-busab.
+*  PERFORM bdc_field       USING 'KNB5-MANSP'  t_tblcli-mansp.
+*  PERFORM bdc_field       USING 'KNB5-KNRMA'  t_tblcli-knrma.
+*  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+*
+*  PERFORM bdc_dynpro       USING 'SAPMF02D'  '0230'.
+*  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-VRSNR'.
+*  PERFORM bdc_field       USING 'KNB1-VRSNR'  t_tblcli-vrsnr.
+*  PERFORM bdc_field       USING 'BDC_OKCODE'  '=00'.
+*  IF t_tblcli-ktokd <> 'ZINT'.
+*    PERFORM bdc_dynpro       USING 'SAPMF02D'  '0610'.
+*    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNBW-WITHT(01)'.
+*    PERFORM bdc_field       USING 'KNBW-WITHT(01)'  t_tblcli-witht.
+*    PERFORM bdc_field       USING 'KNBW-WT_WITHCD(01)'  t_tblcli-wt_withcd.
+*    PERFORM bdc_field       USING 'KNBW-WT_AGENT(01)'   t_tblcli-wt_agent.
+*    IF NOT t_tblcli-wt_agtdf IS INITIAL.
+*      CLEAR: ano, mes, dia.
+*      ano = t_tblcli-wt_agtdf(4).
+*      mes = t_tblcli-wt_agtdf+2(2).
+*      dia = t_tblcli-wt_agtdf+4(2).
+*      CLEAR t_tblcli-wt_agtdf.
+*      CONCATENATE dia mes ano INTO t_tblcli-wt_agtdf.
+*      PERFORM bdc_field       USING 'KNBW-WT_AGTDF(01)'  t_tblcli-wt_agtdf.
+*      IF NOT t_tblcli-wt_agtdf IS INITIAL.
+*        CLEAR: ano, mes, dia.
+*        ano = t_tblcli-wt_agtdf+4(4).
+*        mes = t_tblcli-wt_agtdf+2(2).
+*        dia = t_tblcli-wt_agtdf(2).
+*        CLEAR t_tblcli-wt_agtdf.
+*        CONCATENATE ano mes dia INTO t_tblcli-wt_agtdf.
+*      ENDIF.
+*    ENDIF.
+*    IF NOT t_tblcli-wt_agtdt IS INITIAL.
+*      CLEAR: ano, mes, dia.
+*      ano = t_tblcli-wt_agtdt(4).
+*      mes = t_tblcli-wt_agtdt+2(2).
+*      dia = t_tblcli-wt_agtdt+4(2).
+*      CLEAR t_tblcli-wt_agtdt.
+*      CONCATENATE dia mes ano INTO t_tblcli-wt_agtdt.
+*      PERFORM bdc_field       USING 'KNBW-WT_AGTDT(01)'  t_tblcli-wt_agtdt.
+*      IF NOT t_tblcli-wt_agtdt IS INITIAL.
+*        CLEAR: ano, mes, dia.
+*        ano = t_tblcli-wt_agtdt+4(4).
+*        mes = t_tblcli-wt_agtdt+2(2).
+*        dia = t_tblcli-wt_agtdt(2).
+*        CLEAR t_tblcli-wt_agtdt.
+*        CONCATENATE ano mes dia INTO t_tblcli-wt_agtdt.
+*      ENDIF.
+*    ENDIF.
+*    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+*
+*
+*    PERFORM bdc_dynpro       USING 'SAPMF02D'  '0610'.
+*    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNBW-WITHT(01)'.
+*    PERFORM bdc_field       USING 'BDC_OKCODE'  '=ENTR'.
+*  ENDIF.
+  IF NOT lv_vkorg IS INITIAL AND
+     NOT lv_vtweg IS INITIAL AND
+     NOT lv_spart IS INITIAL.
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0310'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVV-KALKS'.
+    PERFORM bdc_field       USING 'KNVV-BZIRK'  t_tblcli-bzirk.
+    PERFORM bdc_field       USING 'KNVV-VKBUR'  t_tblcli-vkbur.
+    PERFORM bdc_field       USING 'KNVV-VKGRP'  t_tblcli-vkgrp.
+    PERFORM bdc_field       USING 'KNVV-KDGRP'  t_tblcli-kdgrp.
+    PERFORM bdc_field       USING 'KNVV-WAERS'  t_tblcli-waersd.
+    IF t_tblcli-ktokd <> '1040'. " AND t_tblcli-ktokd <> 'ZINT'.
+      PERFORM bdc_field       USING 'KNVV-KONDA'  t_tblcli-konda.
     ENDIF.
+    PERFORM bdc_field       USING 'KNVV-PVKSM'  t_tblcli-pvksm.
+    PERFORM bdc_field       USING 'KNVV-VSORT'  t_tblcli-vsort.
+    PERFORM bdc_field       USING 'KNVV-KALKS'  '2'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
 
-    " Sociedad
-    IF cs_prov-bukrs IS NOT INITIAL.
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0320'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVV-KTGRD'.
+    PERFORM bdc_field       USING 'KNVV-KTGRD'  '01'.
+    PERFORM bdc_field       USING 'KNVV-ZTERM'  t_tblcli-zterm.
+    PERFORM bdc_field       USING 'KNVV-INCO1'  t_tblcli-inco1.
+    PERFORM bdc_field       USING 'KNVV-MRNKZ'  t_tblcli-mrnkz.
+    PERFORM bdc_field       USING 'KNVV-PERFK'  t_tblcli-perfk.
+    PERFORM bdc_field       USING 'KNVV-PERRL'  t_tblcli-perrl.
+    PERFORM bdc_field       USING 'KNVV-BOKRE'  t_tblcli-bokre.
+    PERFORM bdc_field       USING 'KNVV-PRFRE'  t_tblcli-prfre.
 
-      SELECT SINGLE @abap_true FROM lfb1
-      WHERE lifnr = @cs_prov-partner
-      AND bukrs = @cs_prov-bukrs
-      INTO @DATA(lv_company_exists).
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
 
-      rs_context-company_task = COND #(
-      WHEN sy-subrc = 0
-      THEN gc_task_update
-      ELSE gc_task_insert ).
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'1350'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVI-TAXKD(01)'.
+    PERFORM bdc_field       USING 'KNVI-TAXKD(01)'  '1'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '=ENTR'.
 
-    ENDIF.
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'1350'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVI-TAXKD(01)'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '=ENTR'.
 
-    " Organización de compras
-    IF cs_prov-ekorg IS NOT INITIAL.
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0324'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'RF02D-KUNNR'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+  ENDIF.
 
-      SELECT SINGLE @abap_true FROM lfm1
-      WHERE lifnr = @cs_prov-partner
-      AND ekorg = @cs_prov-ekorg
-      INTO @DATA(lv_purchasing_exists).
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'4000'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-WAERS'.
+  IF t_tblcli-waers IS INITIAL.
+    SELECT SINGLE waers FROM t001 INTO t_tblcli-waers WHERE bukrs = t_tblcli-bukrs.
+  ENDIF.
+  PERFORM bdc_field       USING 'KNB1-WAERS'  t_tblcli-waers.
+  PERFORM bdc_field       USING 'KNB1-SIRENHA'  t_tblcli-sirenha.
+  PERFORM bdc_field       USING 'KNB1-MODOCOM'  t_tblcli-modocom.
+  PERFORM bdc_field       USING 'KNB1-MAIL2'  t_tblcli-mail2.
 
-      rs_context-purchasing_task = COND #(
-      WHEN sy-subrc = 0
-      THEN gc_task_update
-      ELSE gc_task_insert ).
+  IF NOT t_tblcli-direc2 IS INITIAL.
+    PERFORM bdc_field       USING 'KNB1-DIREC2'	t_tblcli-direc2.
+  ELSE.
+    PERFORM bdc_field       USING 'KNB1-DIREC2'	t_tblcli-direc1.
+  ENDIF.
+  IF NOT t_tblcli-poblac2 IS INITIAL.
+    PERFORM bdc_field       USING 'KNB1-POBLAC2'  t_tblcli-poblac2.
+  ELSE.
+    PERFORM bdc_field       USING 'KNB1-POBLAC2'  t_tblcli-poblac1.
+  ENDIF.
+  IF NOT t_tblcli-cod_post2 IS INITIAL.
+    PERFORM bdc_field       USING 'KNB1-COD_POST2'  t_tblcli-cod_post2.
+  ELSE.
+    PERFORM bdc_field       USING 'KNB1-COD_POST2'  t_tblcli-cod_post.
+  ENDIF.
+  IF NOT t_tblcli-pais2 IS INITIAL.
+    PERFORM bdc_field       USING 'KNB1-PAIS2'  t_tblcli-pais2.
+  ELSE.
+    PERFORM bdc_field       USING 'KNB1-PAIS2'  t_tblcli-pais.
+  ENDIF.
+  PERFORM bdc_field       USING 'KNB1-ZZNCFTC'  t_tblcli-zzncftc.
 
-    ENDIF.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '=UPDA'.
 
-  ENDMETHOD.
+  CALL TRANSACTION 'XD01' USING bdcdata
+    MODE p_ctmode
+    UPDATE 'S'
+    MESSAGES INTO messtab.
 
-  METHOD maintain_bp.
-    DATA:
-      ls_data    TYPE cvis_ei_extern,
-      ls_context TYPE ty_context.
+  DELETE messtab WHERE msgid = 'ZFI01'.
+  DELETE messtab WHERE msgid = 'F2' AND msgnr = '036'.
 
-    " Normalizar PARTNER si viene informado
-    IF cs_prov-partner IS NOT INITIAL.
-      cs_prov-partner = |{ cs_prov-partner ALPHA = IN }|.
-    ENDIF.
-
-    " Determinar altas / modificaciones
-    ls_context = determine_context( CHANGING cs_prov = cs_prov ).
-
-    IF ls_context-valid = abap_false.
-
-      rs_result-success = abap_false.
-      rs_result-message = ls_context-message.
-
-      RETURN.
-    ENDIF.
-
-    " Datos centrales
-    map_bp_data(
-    CHANGING
-      cs_prov = cs_prov
-      cs_context = ls_context
-      cs_data = ls_data ).
-
-    " Roles FLVN00 / FLVN01
-    map_roles(
-    CHANGING
-      cs_prov = cs_prov
-      cs_data = ls_data ).
-
-    " Números fiscales - CIF
-    map_tax_numbers(
-    CHANGING
-      cs_prov = cs_prov
-      cs_data = ls_data ).
-
-    " Direccion
-    map_bp_address(
-    CHANGING
-      cs_prov = cs_prov
-      cs_context = ls_context
-      cs_data = ls_data ).
-
-    " Industria
-    map_industry(
-    CHANGING
-      cs_prov = cs_prov
-      cs_data = ls_data ).
-
-    " Persona de contacto
-    map_contact_person(
-    CHANGING
-      cs_prov    = cs_prov
-      cs_context = ls_context
-      cs_data    = ls_data ).
-
-    " Banco
-    map_bank_data(
-    CHANGING
-      cs_prov = cs_prov
-      cs_context = ls_context
-      cs_data = ls_data ).
-
-    " Datos dependientes de sociedad (FLVN00)
-    IF cs_prov-bukrs IS NOT INITIAL.
-      map_company_data(
-      CHANGING
-        cs_prov = cs_prov
-        cv_task = ls_context-company_task
-        cs_data = ls_data ).
-    ENDIF.
-
-    " Datos de organización de compras (FLVN01)
-    IF cs_prov-ekorg IS NOT INITIAL.
-      map_purchasing_data(
-      CHANGING
-        cs_prov = cs_prov
-        cv_task = ls_context-purchasing_task
-        cs_data = ls_data ).
-    ENDIF.
-
-    IF cs_prov-migr = 3  AND cs_prov-land1 IS NOT INITIAL AND cs_prov-bankk IS NOT INITIAL.
-      DATA(ls_bank_return) = ensure_bank_master( CHANGING cs_prov = cs_prov ).
-
-      IF ls_bank_return-type CA 'AEX'.
-
-        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
-        rs_result-success = abap_false.
-
-        IF ls_bank_return-message IS NOT INITIAL.
-          rs_result-message = ls_bank_return-message.
-        ELSE.
-          rs_result-message = |Error al crear el banco { cs_prov-land1 }/{ cs_prov-bankk }|.
-        ENDIF.
-        RETURN.
-      ENDIF.
-    ENDIF.
-
-    " Ejecutar API
-    DATA(lt_return) = call_api( is_data = ls_data ).
-    " El tratamiento de mensajes
-    rs_result = evaluate_return( it_return = lt_return ).
-    rs_result-return = lt_return.
-
-    IF rs_result-success = abap_true.
-      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
-        EXPORTING
-          wait = abap_true.
-
-      " BP nuevo: recuperar número generado
-      IF cs_prov-partner IS INITIAL.
-        IF rs_result-partner IS INITIAL.
-
-          SELECT SINGLE partner FROM but000
-          WHERE partner_guid = @ls_context-partner_guid
-          INTO @rs_result-partner.
-        ENDIF.
-
-        IF rs_result-partner IS NOT INITIAL.
-          cs_prov-partner = rs_result-partner.
-        ELSE.
-          rs_result-success = abap_false.
-          rs_result-message = 'El BP fue procesado pero no se pudo recuperar el número generado'.
-        ENDIF.
-
+  LOOP AT messtab.
+    AT FIRST.
+      LOOP AT messtab WHERE msgtyp = 'E'.
+      ENDLOOP.
+      IF sy-subrc = 0.
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '080'.
+        lt_log-msgv1 = t_tblcli-kunnr.
+        APPEND lt_log.
       ELSE.
-        rs_result-partner = cs_prov-partner.
+        lt_log-msgtyp = 'S'.
+        lt_log-msgid = 'ZFI01'.
+        lt_log-msgnr = '080'.
+        lt_log-msgv1 = t_tblcli-kunnr.
+        APPEND lt_log.
       ENDIF.
-    ELSE.
-      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
-    ENDIF.
+    ENDAT.
+    MOVE-CORRESPONDING messtab TO lt_log.
+    APPEND lt_log.
+  ENDLOOP.
 
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& PARTNER - HEADER + CENTRAL_DATA - COMMON
-*& VENDOR - CENTRAL_DATA - CENTRAL
-*--------------------------------------------------------------------*
-  METHOD map_bp_data.
-
-    " Cabecera
-    cs_data-partner-header-object_task = cs_context-bp_task.
-    cs_data-partner-header-object_instance-bpartnerguid = cs_context-partner_guid.
-
-    " Business Partner
-    IF cs_prov-partner IS NOT INITIAL.
-      cs_data-partner-header-object_instance-bpartner = cs_prov-partner.
-    ENDIF.
-
-    " Datos generales
-    " El proveedor siempre como organizacion -> BUT000-TYPE = 2
-    IF cs_context-bp_task = gc_task_insert.
-      cs_data-partner-central_data-common-data-bp_control-category = gc_bp_org.
-      cs_data-partner-central_data-common-data-bp_control-grouping = cs_prov-bu_group.
-    ENDIF.
-
-    cs_data-partner-central_data-common-data-bp_centraldata-partnertype = cs_prov-bu_group.
-    cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = abap_true.
-    cs_data-partner-central_data-common-data-bp_organization-name1 = cs_prov-name1.
-    cs_data-partner-central_data-common-datax-bp_organization-name1 =  abap_true.
-    cs_data-partner-central_data-common-data-bp_organization-name2 = cs_prov-name2.
-    cs_data-partner-central_data-common-datax-bp_organization-name2 = abap_true.
-    cs_data-partner-central_data-common-data-bp_centraldata-searchterm1 = cs_prov-busq.
-    cs_data-partner-central_data-common-datax-bp_centraldata-searchterm1 = abap_true.
-
-    cs_data-vendor-header-object_task = cs_context-vendor_task.
-
-    IF cs_prov-partner IS NOT INITIAL.
-      cs_data-vendor-header-object_instance-lifnr = cs_prov-partner.
-    ENDIF.
-    IF cs_prov-c_fisc_mx IS NOT INITIAL.
-      cs_data-vendor-central_data-central-data-konzs = cs_prov-c_fisc_mx.
-      cs_data-vendor-central_data-central-datax-konzs = abap_true.
-    ENDIF.
-
-    IF cs_prov-rcomp IS NOT INITIAL.
-      cs_data-vendor-central_data-central-data-vbund = cs_prov-rcomp.
-      cs_data-vendor-central_data-central-datax-vbund = abap_true.
-    ENDIF.
-
-    IF cs_prov-stkzn IS NOT INITIAL.
-      cs_data-vendor-central_data-central-data-stkzn = cs_prov-stkzn.
-      cs_data-vendor-central_data-central-datax-stkzn = abap_true.
-    ENDIF.
-
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - ROLE
-*--------------------------------------------------------------------*
-  METHOD map_roles.
-    FIELD-SYMBOLS: <fs_role> TYPE bus_ei_bupa_roles.
-    DATA: lv_role_exists TYPE abap_bool VALUE abap_false.
-
-    " FLVN00 - Acreedor <=> Sociedad
-    IF cs_prov-bukrs IS NOT INITIAL.
-      IF cs_prov-partner IS NOT INITIAL.
-
-        SELECT SINGLE @abap_true FROM but100
-        WHERE partner = @cs_prov-partner
-        AND rltyp   = @gc_role_flvn00
-        INTO @lv_role_exists.
-
-      ENDIF.
-
-      IF lv_role_exists = abap_false.
-        APPEND INITIAL LINE TO cs_data-partner-central_data-role-roles ASSIGNING <fs_role>.
-        <fs_role>-task     = gc_task_insert.
-        <fs_role>-data_key = gc_role_flvn00.
+*    Damos de alta el registro en la tabla de mapeos pms-sap
+  LOOP AT messtab WHERE msgtyp = 'E'.
+  ENDLOOP.
+  IF sy-subrc <> 0.
+    zficonv_cli_pms-hotel = t_tblcli-bukrs.
+    zficonv_cli_pms-cli_pms = t_tblcli-kunnr.
+    zficonv_cli_pms-cli_sap = t_tblcli-kunnrsap.
+    IF NOT zficonv_cli_pms-cli_pms IS INITIAL.
+      IF p_new IS INITIAL.
+        INSERT zficonv_cli_pms.
       ENDIF.
     ENDIF.
-
-    CLEAR: lv_role_exists.
-    " FLVN01 - Proveedor <=> Organización de Compras
-    IF cs_prov-ekorg IS NOT INITIAL.
-      IF cs_prov-partner IS NOT INITIAL.
-
-        SELECT SINGLE @abap_true
-        FROM but100
-        WHERE partner = @cs_prov-partner
-        AND rltyp   = @gc_role_flvn01
-        INTO @lv_role_exists.
-
-      ENDIF.
-
-      IF lv_role_exists = abap_false.
-        APPEND INITIAL LINE TO  cs_data-partner-central_data-role-roles ASSIGNING <fs_role>.
-        <fs_role>-task     = gc_task_insert.
-        <fs_role>-data_key = gc_role_flvn01.
-      ENDIF.
+    t_tblcli-estado = 'V'.
+    SELECT SINGLE ddtext FROM dd07v INTO t_tblcli-estadot
+                WHERE domname = 'ZZDCLIEST'
+                  AND ddlanguage = sy-langu
+                  AND domvalue_l = t_tblcli-estado.
+    t_tblcli-sel = ''.
+    MODIFY t_tblcli.
+    MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+    IF p_new IS INITIAL.
+      MODIFY zfit_sol_cliente.
+    ENDIF.
+***      Actualizamos campos no actualizables por batch input
+    SELECT SINGLE adrnr INTO lv_adrnr FROM kna1 WHERE kunnr = t_tblcli-kunnrsap.
+    SELECT SINGLE * FROM adr6 WHERE addrnumber = lv_adrnr.
+    IF sy-subrc = 0.
+      adr6-smtp_addr = t_tblcli-mail.
+      MODIFY adr6.
     ENDIF.
 
-  ENDMETHOD.
+    SELECT SINGLE * FROM adrc WHERE addrnumber = lv_adrnr.
+    IF sy-subrc = 0.
+      adrc-str_suppl1 = t_tblcli-direc2.
+      adrc-house_num1 = t_tblcli-house_num1.
+      adrc-city2 = t_tblcli-poblac2.
+      MODIFY adrc.
+    ENDIF.
 
-*--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - TAXNUMBER
-*--------------------------------------------------------------------*
-  METHOD map_tax_numbers.
+  ENDIF.
+  CLEAR messtab.
+  REFRESH messtab.
 
-    FIELD-SYMBOLS: <fs_tax> TYPE bus_ei_bupa_taxnumber.
-    DATA: lv_taxtype1 TYPE dfkkbptaxnum-taxtype,
-          lv_taxtype3 TYPE dfkkbptaxnum-taxtype,
-          lv_cif      TYPE string.
+ENDFORM.                    " f_bdc_create_known_debitor
 
-    CHECK cs_prov-pais IS NOT INITIAL.
+*&---------------------------------------------------------------------*
+*&      Form  f_bdc_screen_0100
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+* Inicio modif. Genis 19.07.2007
+*FORM f_bdc_screen_0100_header.
+*
+*  PERFORM bdc_dynpro      USING 'SAPMF02D'    '0100'.
+FORM f_bdc_screen_0100_header USING pi_dynpro.
 
-    " NIF ZFIEPROV-CIF -> DFKKBPTAXNUM-TAXNUMXL
-    IF cs_prov-cif IS NOT INITIAL.
-      " RFC genérico extranjero de México
-      IF cs_prov-cif = gc_rfc_ext_mx.
-        lv_taxtype1 = 'MX1'.
-      ELSE.
-        lv_taxtype1 = |{ cs_prov-pais }1|.
+  PERFORM bdc_dynpro      USING 'SAPMF02D'    pi_dynpro.
+* Fin modif. Genis 19.07.2007
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'RF02D-KUNNR'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+  PERFORM bdc_field       USING 'RF02D-KUNNR'	t_tblcli-kunnrsap.
+  PERFORM bdc_field       USING 'RF02D-BUKRS'	t_tblcli-bukrs.
+
+* Inicio modif. Genis 19.07.2007
+  IF pi_dynpro = '0101'.
+    PERFORM bdc_field  USING: 'RF02D-D0210'  'X',
+                              'RF02D-D0215'  'X',
+                              'RF02D-D0220'  'X',
+                              'RF02D-D0230'  'X',
+                              'RF02D-D0610'  'X'.
+  ELSE.
+    PERFORM bdc_field  USING 'RF02D-KTOKD'  t_tblcli-ktokd.
+    PERFORM bdc_field  USING 'USE_ZAV'  'X'.
+  ENDIF.
+* Fin modif. Genis 19.07.2007
+
+ENDFORM.                    " f_bdc_screen_0100
+
+*&---------------------------------------------------------------------*
+*&      Form  F_BDC_SCREEn_0100_VENTAS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_screen_0100_ventas CHANGING lv_vkorg
+                                       lv_vtweg
+                                       lv_spart.
+
+  SELECT SINGLE vkorg
+    INTO lv_vkorg
+    FROM tvko
+    WHERE bukrs = t_tblcli-bukrs.
+  IF sy-subrc EQ 0.
+    SELECT SINGLE vtweg spart
+      INTO (lv_vtweg, lv_spart)
+      FROM tvta
+      WHERE vkorg = lv_vkorg.
+    IF sy-subrc EQ 0.
+      PERFORM bdc_field       USING 'RF02D-VKORG'	lv_vkorg.
+      PERFORM bdc_field       USING 'RF02D-VTWEG'	lv_vtweg.
+      PERFORM bdc_field       USING 'RF02D-SPART'	lv_spart.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.                    " F_BDC_SCREEn_0100_VENTAS
+
+*&---------------------------------------------------------------------*
+*&      Form  F_BDC_SCREEn_0111_ADDRESS
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_screen_0111_address.
+
+  DATA lv_name TYPE char40.
+
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'0111'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'ADDR1_DATA-NAME1'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+  CONCATENATE t_tblcli-name1 t_tblcli-name2 INTO lv_name SEPARATED BY space.
+  PERFORM bdc_field       USING 'ADDR1_DATA-NAME1'     lv_name.
+  PERFORM bdc_field       USING 'ADDR1_DATA-SORT1'     t_tblcli-sort1.
+  PERFORM bdc_field       USING 'ADDR1_DATA-SORT2'     t_tblcli-sort2.
+  PERFORM bdc_field       USING 'ADDR1_DATA-STREET'    t_tblcli-direc1.
+  PERFORM bdc_field       USING 'ADDR1_DATA-CITY1'     t_tblcli-poblac1.
+  PERFORM bdc_field       USING 'ADDR1_DATA-COUNTRY'   t_tblcli-pais.
+  PERFORM bdc_field       USING 'ADDR1_DATA-REGION'    t_tblcli-region.
+  PERFORM bdc_field       USING 'ADDR1_DATA-LANGU'     sy-langu.
+  PERFORM bdc_field       USING 'ADDR1_DATA-POST_CODE1'  t_tblcli-cod_post.
+  PERFORM bdc_field       USING 'SZA1_D0100-TEL_NUMBER'  t_tblcli-tel.
+  PERFORM bdc_field       USING 'SZA1_D0100-MOB_NUMBER'  t_tblcli-mob_numb.
+  PERFORM bdc_field       USING 'SZA1_D0100-FAX_NUMBER'  t_tblcli-fax.
+  PERFORM bdc_field       USING 'SZA1_D0100-SMTP_ADDR'   t_tblcli-mail.
+
+
+ENDFORM.                    " F_BDC_SCREEn_0111_ADDRESS
+
+*&---------------------------------------------------------------------*
+*&      Form  f_bdc_screen_0120_CONTROL
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_screen_0120_control.
+
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'0120'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNA1-STCD1'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+*  IF t_tblcli-ktokd <> '1020' AND t_tblcli-ktokd <> '1910'.
+    IF t_tblcli-ktokd <> '1020' AND t_tblcli-ktokd <> '1910' and
+     t_tblcli-ktokd <> '1010' .
+    PERFORM bdc_field       USING 'KNA1-VBUND'  t_tblcli-vbund.
+  ENDIF.
+*  PERFORM bdc_field       USING 'KNA1-BRSCH'  t_tblcli-brsch.
+  PERFORM bdc_field       USING 'KNA1-STCD1'  t_tblcli-nif.
+*  PERFORM bdc_field       USING 'KNA1-STCD2'  t_tblcli-nif2.
+  PERFORM bdc_field       USING 'KNA1-STKZN'  t_tblcli-stkzn.
+  PERFORM bdc_field       USING 'KNA1-STCD3'  t_tblcli-nif3.
+*  PERFORM bdc_field       USING 'KNA1-STCEG'  t_tblcli-stceg.
+
+ENDFORM.                    " f_bdc_screen_0120_CONTROL
+
+*&---------------------------------------------------------------------*
+*&      Form  F_BDC_SCREEN_0360_CONTACT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_screen_0360_contact.
+
+  PERFORM bdc_dynpro      USING 'SAPMF02D'  '0360'.
+*   PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVK-ANRED(01)'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVK-NAMEV(01)'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '=VW'.
+*  PERFORM bdc_field       USING 'KNVK-NAMEV(01)'  t_tblcli-contac_name2.
+*  PERFORM bdc_field       USING 'KNVK-NAME1(01)'  t_tblcli-contac_name1.
+*  PERFORM bdc_dynpro       USING 'SAPMF02D'  '0360'.
+*  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNVK-NAMEV(01)'.
+*  PERFORM bdc_field       USING 'BDC_OKCODE'  '=ENTR'.
+
+ENDFORM.                    " F_BDC_SCREEN_0360_CONTACT
+
+*&---------------------------------------------------------------------*
+*&      Form  f_bdc_screen_0130_BANK
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_screen_0130_paymnt.
+
+  PERFORM bdc_dynpro       USING 'SAPMF02D'  '0130'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNBK-BANKS(01)'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '=VW'.
+*  PERFORM bdc_field       USING 'KNA1-DTAMS' t_tblcli-dtams.
+
+ENDFORM.                    " f_bdc_screen_0130_BANK
+
+* Inicio modif. Genis 19.07.2007
+*&---------------------------------------------------------------------*
+*&      Form  f_bdc_modify_company_data
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_modify_company_data.
+
+  CLEAR: bdcdata, bdcdata[].
+  PERFORM f_bdc_screen_0100_header USING '0101'.
+  PERFORM f_bdc_datos_sociedad.
+
+  CLEAR: messtab, messtab[].
+  CALL TRANSACTION 'XD02' USING bdcdata
+    MODE p_ctmode
+    UPDATE 'S'
+    MESSAGES INTO messtab.
+
+  READ TABLE messtab WITH KEY msgtyp = 'E'.
+  IF sy-subrc = 0.
+    lt_log-msgtyp = 'E'.
+  ELSE.
+    lt_log-msgtyp = 'S'.
+  ENDIF.
+  lt_log-msgid = 'ZFI01'.
+  lt_log-msgnr = '080'.
+  lt_log-msgv1 = t_tblcli-kunnr.
+  APPEND lt_log.
+
+  CLEAR: messtab.
+  LOOP AT messtab.
+    MOVE-CORRESPONDING messtab TO lt_log.
+    APPEND lt_log.
+  ENDLOOP.
+
+ENDFORM.                    " f_bdc_modify_company_data
+
+*&---------------------------------------------------------------------*
+*&      Form  f_bdc_datos_sociedad
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_datos_sociedad.
+
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'0210'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-AKONT'.
+  PERFORM bdc_field       USING 'KNB1-AKONT'  t_tblcli-akont.
+  IF t_tblcli-ktokd <> '1020' AND t_tblcli-ktokd <> '1910' and
+     t_tblcli-ktokd <> '1010'."AAR 16.01.2012
+    PERFORM bdc_field       USING 'KNB1-VZSKZ'  t_tblcli-vzskz.
+  ENDIF.
+  PERFORM bdc_field       USING 'KNB1-FDGRV'  t_tblcli-fdgrv.
+  PERFORM bdc_field       USING 'KNB1-ALTKN'  t_tblcli-altkn.
+  IF t_tblcli-ktokd = '1040'.
+    PERFORM bdc_field       USING 'KNB1-VZSKZ'  'Z1'.
+  ENDIF.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'0215'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-ZTERM'.
+  PERFORM bdc_field       USING 'KNB1-ZTERM'  t_tblcli-zterm.
+  PERFORM bdc_field       USING 'KNB1-ZAHLS'  t_tblcli-zahls.
+  PERFORM bdc_field       USING 'KNB1-ZWELS'  t_tblcli-zwels.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+  PERFORM bdc_dynpro       USING 'SAPMF02D'	'0220'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB5-MAHNA'.
+  PERFORM bdc_field       USING 'KNB5-MAHNA'  t_tblcli-mahna.
+  PERFORM bdc_field       USING 'KNB1-BUSAB'  t_tblcli-busab.
+  PERFORM bdc_field       USING 'KNB5-MANSP'  t_tblcli-mansp.
+  PERFORM bdc_field       USING 'KNB5-KNRMA'  t_tblcli-knrma.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+
+  PERFORM bdc_dynpro       USING 'SAPMF02D'  '0230'.
+  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNB1-VRSNR'.
+  PERFORM bdc_field       USING 'KNB1-VRSNR'  t_tblcli-vrsnr.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '=00'.
+  IF t_tblcli-ktokd <> '1040'.
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0610'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNBW-WITHT(01)'.
+    PERFORM bdc_field       USING 'KNBW-WITHT(01)'  t_tblcli-witht.
+    PERFORM bdc_field       USING 'KNBW-WT_WITHCD(01)'  t_tblcli-wt_withcd.
+    PERFORM bdc_field       USING 'KNBW-WT_AGENT(01)'   t_tblcli-wt_agent.
+    IF NOT t_tblcli-wt_agtdf IS INITIAL.
+      CLEAR: ano, mes, dia.
+      ano = t_tblcli-wt_agtdf(4).
+      mes = t_tblcli-wt_agtdf+2(2).
+      dia = t_tblcli-wt_agtdf+4(2).
+      CLEAR t_tblcli-wt_agtdf.
+      CONCATENATE dia mes ano INTO t_tblcli-wt_agtdf.
+      PERFORM bdc_field       USING 'KNBW-WT_AGTDF(01)'	t_tblcli-wt_agtdf.
+      IF NOT t_tblcli-wt_agtdf IS INITIAL.
+        CLEAR: ano, mes, dia.
+        ano = t_tblcli-wt_agtdf+4(4).
+        mes = t_tblcli-wt_agtdf+2(2).
+        dia = t_tblcli-wt_agtdf(2).
+        CLEAR t_tblcli-wt_agtdf.
+        CONCATENATE ano mes dia INTO t_tblcli-wt_agtdf.
       ENDIF.
-      CLEAR: lv_cif.
-      lv_cif = CONV string( cs_prov-cif ).
-
-      map_tax_number(
-      EXPORTING
-        iv_extended = abap_true
-      CHANGING
-        cs_prov     = cs_prov
-        cv_taxtype  = lv_taxtype1
-        cv_value    = lv_cif
-        cs_data     = cs_data ).
     ENDIF.
-
-    " NIF3 ZFIEPROV-STCD3 -> DFKKBPTAXNUM-TAXNUM
-    IF cs_prov-stcd3 IS NOT INITIAL.
-
-      lv_taxtype3 = |{ cs_prov-pais }3|.
-      CLEAR: lv_cif.
-      lv_cif = CONV string( cs_prov-stcd3 ).
-
-      map_tax_number(
-      EXPORTING
-        iv_extended = abap_false
-      CHANGING
-        cs_prov     = cs_prov
-        cv_taxtype  = lv_taxtype3
-        cv_value    = lv_cif
-        cs_data     = cs_data ).
+    IF NOT t_tblcli-wt_agtdt IS INITIAL.
+      CLEAR: ano, mes, dia.
+      ano = t_tblcli-wt_agtdt(4).
+      mes = t_tblcli-wt_agtdt+2(2).
+      dia = t_tblcli-wt_agtdt+4(2).
+      CLEAR t_tblcli-wt_agtdt.
+      CONCATENATE dia mes ano INTO t_tblcli-wt_agtdt.
+      PERFORM bdc_field       USING 'KNBW-WT_AGTDT(01)'	t_tblcli-wt_agtdt.
+      IF NOT t_tblcli-wt_agtdt IS INITIAL.
+        CLEAR: ano, mes, dia.
+        ano = t_tblcli-wt_agtdt+4(4).
+        mes = t_tblcli-wt_agtdt+2(2).
+        dia = t_tblcli-wt_agtdt(2).
+        CLEAR t_tblcli-wt_agtdt.
+        CONCATENATE ano mes dia INTO t_tblcli-wt_agtdt.
+      ENDIF.
     ENDIF.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
 
-  ENDMETHOD.
 
-*--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - TAXNUMBER - SINGLE TAX NUMBER
-*--------------------------------------------------------------------*
-  METHOD map_tax_number.
+    PERFORM bdc_dynpro       USING 'SAPMF02D'	'0610'.
+    PERFORM bdc_field       USING 'BDC_CURSOR'  'KNBW-WITHT(01)'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'  '=AO01'.
+  ENDIF.
 
-    FIELD-SYMBOLS: <fs_tax> TYPE bus_ei_bupa_taxnumber.
+ENDFORM.                    " f_bdc_datos_sociedad
 
-    DATA: lv_task      TYPE c LENGTH 1 VALUE gc_task_insert,
-          lv_old_value TYPE string.
+*&---------------------------------------------------------------------*
+*&      Form  crear_asoc_clientes
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM crear_asoc_clientes.
 
-    " Comprobar si esa categoría fiscal ya existe para el BP
-    " La clave funcional es:  PARTNER + TAXTYPE
-    IF cs_prov-partner IS NOT INITIAL.
+  SELECT SINGLE hotel
+    FROM zficonv_cli_pms
+    INTO t_tblcli-bukrs
+    WHERE hotel = t_tblcli-bukrs
+      AND cli_pms = t_tblcli-kunnr
+      AND cli_sap = t_tblcli-kunnrsap.
 
-      SELECT SINGLE @abap_true
-      FROM dfkkbptaxnum
-      WHERE partner = @cs_prov-partner
-      AND taxtype = @cv_taxtype
-      INTO @DATA(lv_exists).
+  IF sy-subrc <> 0.
+    DELETE FROM zficonv_cli_pms
+      WHERE hotel = zfit_sol_cliente-bukrs
+        AND cli_pms = zfit_sol_cliente-kunnr.
+
+    zficonv_cli_pms-mandt = sy-mandt.
+    zficonv_cli_pms-hotel = zfit_sol_cliente-bukrs.
+    zficonv_cli_pms-cli_pms = zfit_sol_cliente-kunnr.
+    zficonv_cli_pms-cli_sap = zfit_sol_cliente-kunnrsap.
+    INSERT zficonv_cli_pms.
+  ENDIF.
+
+ENDFORM.                    " crear_asoc_clientes
+* Fin modif. Genis 19.07.2007
+
+*&---------------------------------------------------------------------*
+*&      Form  nuevo
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM nuevo.
+  CLEAR t_tblcli.
+  APPEND t_tblcli.
+ENDFORM.                    " nuevo
+
+*&---------------------------------------------------------------------*
+*&      Form  f_check_kunnr_vs_bukrs
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_check_kunnr_vs_bukrs.
+
+  DATA: lv_vkorg TYPE vkorg,
+        lv_vtweg TYPE vtweg,
+        lv_spart TYPE spart,
+        save_kunnr_pms TYPE zcli_pms,
+        save_bukrs_dynpro TYPE bukrs.
+
+  save_kunnr_pms = g_tblcli_wa-kunnr.
+  save_bukrs_dynpro = g_tblcli_wa-bukrs.
+
+  IF g_tblcli_wa-kunnrsap IS NOT INITIAL
+    AND g_tblcli_wa-bukrs  IS NOT INITIAL.
+    SELECT SINGLE *
+      FROM knb1
+      WHERE kunnr = g_tblcli_wa-kunnrsap
+      AND   bukrs = g_tblcli_wa-bukrs.
+    IF sy-subrc EQ 0.
+* Si el cliente ya existe para la sociedad --> ERROR
+* Inicio modif Genis 19.07.2007
+*      MESSAGE e351(zfi01) WITH knb1-kunnr knb1-bukrs.
+*      EXIT.
+      SELECT SINGLE cli_pms
+        FROM zficonv_cli_pms
+        INTO g_tblcli_wa-kunnr
+        WHERE hotel = g_tblcli_wa-bukrs
+          AND cli_pms = g_tblcli_wa-kunnr
+          AND cli_sap = g_tblcli_wa-kunnrsap.
 
       IF sy-subrc = 0.
-        lv_task = gc_task_update.
+        MESSAGE e351(zfi01) WITH knb1-kunnr knb1-bukrs g_tblcli_wa-kunnr.
+        EXIT.
+      ELSE.
+        PERFORM copia_datos_cliente.
       ENDIF.
-    ENDIF.
-
-    APPEND INITIAL LINE TO cs_data-partner-central_data-taxnumber-taxnumbers ASSIGNING <fs_tax>.
-
-    <fs_tax>-task = lv_task.
-    <fs_tax>-data_key-taxtype = cv_taxtype.
-
-    IF iv_extended = abap_true.
-
-      " Número de identificación fiscal ZFIEPROV-CIF -> TAXNUMXL
-      <fs_tax>-data_key-taxnumxl = cv_value.
+* Fin modif Genis 19.07.2007
     ELSE.
+* Inicio modif Genis 19.07.2007
+      PERFORM copia_datos_cliente.
+*      SELECT SINGLE *
+*        FROM knb1
+*        WHERE kunnr = g_tblcli_wa-kunnrsap.
+*      IF sy-subrc EQ 0.
+** Copiamos los principales campos de la Sociedad en caso de que
+** el cliente exista en otra sociedad
+*        MOVE-CORRESPONDING knb1 TO g_tblcli_wa.
+*        SELECT SINGLE *
+*          FROM kna1
+*          WHERE kunnr = g_tblcli_wa-kunnrsap.
+*        IF sy-subrc EQ 0.
+*          MOVE-CORRESPONDING kna1 TO g_tblcli_wa.
+*        ENDIF.
+*        SELECT SINGLE vkorg
+*            INTO lv_vkorg
+*            FROM tvko
+*            WHERE bukrs = t_tblcli-bukrs.
+*        IF sy-subrc EQ 0.
+*          SELECT SINGLE vtweg spart
+*            INTO (lv_vtweg, lv_spart)
+*            FROM tvta
+*            WHERE vkorg = lv_vkorg.
+*          IF sy-subrc EQ 0.
+*            SELECT SINGLE *
+*              INTO CORRESPONDING FIELDS OF g_tblcli_wa
+*              FROM knvv
+*              WHERE kunnr = g_tblcli_wa-kunnrsap
+*              AND   vkorg = lv_vkorg
+*              AND   vtweg = lv_vtweg
+*              AND   spart = lv_spart.
+*          ENDIF.
+*
+*        ENDIF.
+**       Otros campos que no se llaman igual que en estándar
+**.....  añadir aquí los que correspondan
+*        g_tblcli_wa-pais     = kna1-land1.
+*        g_tblcli_wa-direc1   = kna1-stras.
+*        g_tblcli_wa-poblac1  = kna1-ort01.
+*        g_tblcli_wa-sort1    = kna1-sortl.
+*        g_tblcli_wa-cod_post = kna1-pstlz.
+*        g_tblcli_wa-region   = kna1-regio.
+*        g_tblcli_wa-nif      = kna1-stcd1.
+*        g_tblcli_wa-nif2     = kna1-stcd2.
+*        ....
+*      ENDIF.
+* Fin modif Genis 19.07.2007
 
-      " NIF3 ZFIEPROV-STCD3 -> TAXNUMBER
-      <fs_tax>-data_key-taxnumber = cv_value.
+    ENDIF.
+  ENDIF.
+  g_tblcli_wa-kunnr = save_kunnr_pms.
+  g_tblcli_wa-bukrs = save_bukrs_dynpro.
+
+ENDFORM.                    " f_check_kunnr_vs_bukrs
+
+*&---------------------------------------------------------------------*
+*&      Form  copia_datos_cliente
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM copia_datos_cliente.
+  SELECT SINGLE *
+    FROM knb1
+    WHERE kunnr = g_tblcli_wa-kunnrsap.
+
+  IF sy-subrc EQ 0.
+*   Copiamos los principales campos de la Sociedad en caso de que
+*   el cliente exista en otra sociedad
+    MOVE-CORRESPONDING knb1 TO g_tblcli_wa.
+
+    SELECT SINGLE *
+      FROM kna1
+      WHERE kunnr = g_tblcli_wa-kunnrsap.
+
+    IF sy-subrc EQ 0.
+      MOVE-CORRESPONDING kna1 TO g_tblcli_wa.
     ENDIF.
 
-  ENDMETHOD.
+    SELECT SINGLE vkorg
+      INTO lv_vkorg
+      FROM tvko
+      WHERE bukrs = t_tblcli-bukrs.
 
-*--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - ADDRESS - ADDRESSES - DATA - POSTAL
-*--------------------------------------------------------------------*
-  METHOD map_bp_address.
+    IF sy-subrc EQ 0.
+      SELECT SINGLE vtweg spart
+        INTO (lv_vtweg, lv_spart)
+        FROM tvta
+        WHERE vkorg = lv_vkorg.
 
-    DATA: lv_langu_iso TYPE laiso.
-    FIELD-SYMBOLS: <fs_address> TYPE bus_ei_bupa_address.
-
-    APPEND INITIAL LINE TO cs_data-partner-central_data-address-addresses ASSIGNING <fs_address>.
-    <fs_address>-task =  cs_context-address_task.
-    <fs_address>-data_key-guid = cs_context-address_guid.
-    <fs_address>-data_key-operation = 'XXDFLT'.
-
-
-    <fs_address>-data-postal-data-city = cs_prov-poblac.
-    <fs_address>-data-postal-DATAx-city = abap_true.
-    <fs_address>-data-postal-data-street = cs_prov-direc.
-    <fs_address>-data-postal-DATAx-street = abap_true.
-    <fs_address>-data-postal-data-str_suppl1 = cs_prov-direc_2.
-    <fs_address>-data-postal-DATAx-str_suppl1 = abap_true.
-    <fs_address>-data-postal-data-postl_cod1 = cs_prov-cod_post.
-    <fs_address>-data-postal-DATAx-postl_cod1 = abap_true.
-    <fs_address>-data-postal-data-region = cs_prov-region.
-    <fs_address>-data-postal-DATAx-region = abap_true.
-    <fs_address>-data-postal-data-country = cs_prov-pais.
-    <fs_address>-data-postal-DATAx-country = abap_true.
-    <fs_address>-data-postal-data-langu = cs_prov-spras.
-    <fs_address>-data-postal-DATAx-langu = abap_true.
-
-    IF cs_prov-spras IS NOT INITIAL.
-      CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
-        EXPORTING
-          input  = cs_prov-spras
-        IMPORTING
-          output = lv_langu_iso.
-
-      IF lv_langu_iso IS NOT INITIAL.
-        <fs_address>-data-postal-data-languiso = lv_langu_iso.
-        <fs_address>-data-postal-datax-langu_iso = abap_true.
+      IF sy-subrc EQ 0.
+        SELECT SINGLE *
+          INTO CORRESPONDING FIELDS OF g_tblcli_wa
+          FROM knvv
+          WHERE kunnr = g_tblcli_wa-kunnrsap
+            AND vkorg = lv_vkorg
+            AND vtweg = lv_vtweg
+            AND spart = lv_spart.
       ENDIF.
     ENDIF.
 
-    "Comunicacion
-    map_bp_communication(
-    CHANGING
-      cs_prov = cs_prov
-     cs_address = <fs_address> ).
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - ADDRESS - ADDRESSES - DATA - COMMUNICATION
-*--------------------------------------------------------------------*
-  METHOD map_bp_communication.
-
-    FIELD-SYMBOLS: <fs_phone> TYPE bus_ei_bupa_telephone,
-                   <fs_fax>   TYPE bus_ei_bupa_fax,
-                   <fs_smtp>  TYPE bus_ei_bupa_smtp.
-
-    DATA:
-      lv_adrnr            TYPE lfa1-adrnr,
-      lv_phone_task       TYPE c LENGTH 1,
-      lv_old_phone        TYPE adr2-tel_number,
-      lv_phone_consnumber TYPE adr2-consnumber,
-      lv_fax_task         TYPE c LENGTH 1,
-      lv_old_fax          TYPE adr3-fax_number,
-      lv_fax_consnumber   TYPE adr3-consnumber,
-      lv_smtp_task        TYPE c LENGTH 1,
-      lv_old_smtp         TYPE adr6-smtp_addr,
-      lv_smtp_consnumber  TYPE adr6-consnumber.
-
-    IF cs_prov-partner IS NOT INITIAL.
-      SELECT SINGLE adrnr FROM lfa1
-      WHERE lifnr = @cs_prov-partner
-      INTO @lv_adrnr.
-    ENDIF.
-
-    " Telefono
-    IF cs_prov-tel IS NOT INITIAL.
-      lv_phone_task = gc_task_insert.
-      CLEAR: lv_old_phone, lv_phone_consnumber.
-      " Para un BP existente buscamos su teléfono principal
-      IF lv_adrnr IS NOT INITIAL.
-
-        SELECT SINGLE tel_number, consnumber  FROM adr2
-        WHERE addrnumber = @lv_adrnr
-        AND persnumber = @space
-        AND flgdefault = @abap_true
-        INTO (@lv_old_phone, @lv_phone_consnumber).
-
-        IF sy-subrc = 0.
-          " Ya existe un teléfono principal
-          lv_phone_task = gc_task_update.
-        ENDIF.
-      ENDIF.
-
-      " Solo enviar datos si:
-      " - no existía teléfono principal, o
-      " - el teléfono ha cambiado.
-      IF lv_phone_task = gc_task_insert OR lv_old_phone <> cs_prov-tel.
-        APPEND INITIAL LINE TO cs_address-data-communication-phone-phone ASSIGNING <fs_phone>.
-        <fs_phone>-contact-task = lv_phone_task.
-        <fs_phone>-contact-data-telephone = cs_prov-tel.
-        <fs_phone>-contact-datax-telephone  = abap_true.
-
-        IF lv_phone_task = gc_task_update.
-
-          " Identifica exactamente qué ADR2 modificar.
-          <fs_phone>-contact-data-consnumber = lv_phone_consnumber.
-          <fs_phone>-contact-datax-consnumber = abap_true.
-
-        ELSE.
-
-          " No había teléfono principal: el nuevo pasa a ser el principal
-          <fs_phone>-contact-data-std_no =  abap_true.
-          <fs_phone>-contact-datax-std_no = abap_true.
-          <fs_phone>-contact-data-home_flag =  abap_true.
-          <fs_phone>-contact-datax-home_flag = abap_true.
-        ENDIF.
-      ENDIF.
-    ENDIF.
-
-    " Fax
-    IF cs_prov-fax IS NOT INITIAL.
-      lv_fax_task = gc_task_insert.
-      CLEAR: lv_old_fax, lv_fax_consnumber.
-
-      " Buscar fax principal existente.
-      IF lv_adrnr IS NOT INITIAL.
-        SELECT SINGLE fax_number, consnumber FROM adr3
-        WHERE addrnumber = @lv_adrnr
-        AND persnumber = @space
-        AND flgdefault = @abap_true
-        INTO (@lv_old_fax, @lv_fax_consnumber).
-
-        IF sy-subrc = 0.
-          lv_fax_task = gc_task_update.
-        ENDIF.
-      ENDIF.
-
-      IF lv_fax_task = gc_task_insert OR lv_old_fax <> cs_prov-fax.
-        APPEND INITIAL LINE TO cs_address-data-communication-fax-fax ASSIGNING <fs_fax>.
-        <fs_fax>-contact-task = lv_fax_task.
-        <fs_fax>-contact-data-fax = cs_prov-fax.
-        <fs_fax>-contact-DATAx-fax = abap_true.
-        IF lv_fax_task = gc_task_update.
-
-          <fs_fax>-contact-data-consnumber = lv_fax_consnumber.
-          <fs_fax>-contact-datax-consnumber = abap_true.
-
-        ELSE.
-
-          <fs_fax>-contact-data-std_no = abap_true.
-          <fs_fax>-contact-datax-std_no = abap_true.
-          <fs_fax>-contact-data-home_flag = abap_true.
-          <fs_fax>-contact-datax-home_flag = abap_true.
-        ENDIF.
-      ENDIF.
-    ENDIF.
-
-    " Email
-    IF cs_prov-smtp IS NOT INITIAL.
-
-      lv_smtp_task = gc_task_insert.
-
-      CLEAR: lv_old_smtp, lv_smtp_consnumber.
-
-      " Buscar correo principal existente.
-      IF lv_adrnr IS NOT INITIAL.
-        SELECT SINGLE smtp_addr, consnumber FROM adr6
-        WHERE addrnumber = @lv_adrnr
-        AND persnumber = @space
-        AND flgdefault = @abap_true
-        INTO (@lv_old_smtp, @lv_smtp_consnumber).
-
-        IF sy-subrc = 0.
-          lv_smtp_task = gc_task_update.
-        ENDIF.
-      ENDIF.
-      " Sin correo principal -> INSERT
-      " Principal diferente   -> UPDATE
-      " Principal igual       -> no hacer nada
-      IF lv_smtp_task = gc_task_insert OR lv_old_smtp <> cs_prov-smtp.
-
-        APPEND INITIAL LINE TO cs_address-data-communication-smtp-smtp ASSIGNING <fs_smtp>.
-        <fs_smtp>-contact-task = lv_smtp_task.
-        <fs_smtp>-contact-data-e_mail = cs_prov-smtp.
-        <fs_smtp>-contact-DATAx-e_mail = abap_true.
-
-        " UPDATE: indicar qué registro ADR6 estamos modificando
-        IF lv_smtp_task = gc_task_update.
-
-          <fs_smtp>-contact-data-consnumber = lv_smtp_consnumber.
-          <fs_smtp>-contact-datax-consnumber = abap_true.
-
-        ELSE.
-
-          " INSERT: ACTUALIZA_MAIL creaba el nuevo correo como:
-          " FLGDEFAULT = X
-          " HOME_FLAG  = X
-          <fs_smtp>-contact-data-std_no = abap_true.
-          <fs_smtp>-contact-datax-std_no = abap_true.
-          <fs_smtp>-contact-data-home_flag = abap_true.
-          <fs_smtp>-contact-datax-home_flag = abap_true.
-
-        ENDIF.
-      ENDIF.
-    ENDIF.
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - INDUSTRY - INDUSTRIES
-*--------------------------------------------------------------------*
-  METHOD map_industry.
-
-    FIELD-SYMBOLS: <fs_industry> TYPE bus_ei_bupa_industrysector.
-    DATA: lv_task TYPE c LENGTH 1.
-
-    CHECK cs_prov-brsch IS NOT INITIAL.
-
-    " Determinar el sistema de industrias al que pertenece el ramo.
-    SELECT SINGLE istype
-    FROM tb038a
-    WHERE ind_sector = @cs_prov-brsch
-    INTO @DATA(lv_istype).
-
-    IF sy-subrc = 0.
-      " BP NUEVO
-      lv_task = gc_task_insert.
-
-      " Comprobar si el BP ya tiene asignado ese mismo ramo
-      IF cs_prov-partner IS NOT INITIAL.
-
-        SELECT SINGLE ind_sector
-        FROM but0is
-        WHERE partner = @cs_prov-partner
-        AND istype = @lv_istype
-        INTO @DATA(lv_old_sector).
-
-        IF sy-subrc <> 0.
-          lv_task = gc_task_insert.
-        ELSEIF lv_old_sector = cs_prov-brsch.
-          lv_task = gc_task_update.
-        ENDIF.
-      ENDIF.
-
-      APPEND INITIAL LINE  TO cs_data-partner-central_data-industry-industries ASSIGNING <fs_industry>.
-
-      <fs_industry>-task = lv_task.
-      <fs_industry>-data_key-keysystem = lv_istype.
-      <fs_industry>-data_key-ind_sector = cs_prov-brsch.
-      " el ramo informado debe ser el ramo estándar.
-      <fs_industry>-data-ind_default = abap_true.
-      <fs_industry>-datax-ind_default = abap_true.
-    ENDIF.
-  ENDMETHOD.
-
-  METHOD map_contact_person.
-
-    DATA: lv_contact_id TYPE bapicontact_01-contact.
-
-    FIELD-SYMBOLS: <fs_contact> TYPE vmds_ei_contacts.
-
-    CHECK cs_context-vendor_task = gc_task_insert.
-
-    " DZSABE_K no es obligatorio
-    CHECK cs_prov-dzsabe_k IS NOT INITIAL.
-
-    " Obtener número interno para la persona de contacto
-    CALL FUNCTION 'BAPI_PARTNEREMPLOYEE_GETINTNUM'
-      EXPORTING
-        quantity  = 1
-      IMPORTING
-        contactid = lv_contact_id.
-
-    APPEND INITIAL LINE TO cs_data-vendor-central_data-contact-contacts ASSIGNING <fs_contact>.
-
-    " Crear nueva persona de contacto
-    <fs_contact>-task = gc_task_insert.
-
-    " Identificador KNVK-PARNR
-    <fs_contact>-data_key-parnr = lv_contact_id.
-
-    " Crear los datos de dirección/nombre del contacto
-    <fs_contact>-address_type_3-task = gc_task_insert.
-
-    " El BDC anterior únicamente informaba KNVK-NAME1.
-    <fs_contact>-address_type_3-postal-data-fullname = cs_prov-dzsabe_k.
-    <fs_contact>-address_type_3-postal-datax-fullname = abap_true.
-
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& PARTNER - CENTRAL_DATA - BANKDETAIL
-*--------------------------------------------------------------------*
-  METHOD map_bank_data.
-
-    FIELD-SYMBOLS: <fs_bankdetail> TYPE bus_ei_bupa_bankdetail.
-    DATA lv_iban TYPE iban.
-
-    CHECK cs_prov-migr = 3. "ver si funcionalmente es valido
-    CHECK cs_context-bp_task = gc_task_insert.
-
-    " Crear detalle bancario del Business Partner
-    APPEND INITIAL LINE TO cs_data-partner-central_data-bankdetail-bankdetails ASSIGNING <fs_bankdetail>.
-
-    <fs_bankdetail>-task =   gc_task_insert.
-
-    " País del banco ZFIEPROV-LAND1
-    IF cs_prov-land1 IS NOT INITIAL.
-      <fs_bankdetail>-data-bank_ctry  = cs_prov-land1.
-      <fs_bankdetail>-datax-bank_ctry = abap_true.
-    ENDIF.
-
-    " Clave del banco ZFIEPROV-BANKK
-    IF cs_prov-bankk IS NOT INITIAL.
-      <fs_bankdetail>-data-bank_key  = cs_prov-bankk.
-      <fs_bankdetail>-datax-bank_key = abap_true.
-    ENDIF.
-
-    " Número de cuenta bancaria ZFIEPROV-BANKN
-    IF cs_prov-bankn IS NOT INITIAL.
-      <fs_bankdetail>-data-bank_acct  = cs_prov-bankn.
-      <fs_bankdetail>-datax-bank_acct = abap_true.
-    ENDIF.
-
-    " Clave de control bancaria ZFIEPROV-BKONT
-    IF cs_prov-bkont IS NOT INITIAL.
-      <fs_bankdetail>-data-ctrl_key  = cs_prov-bkont.
-      <fs_bankdetail>-datax-ctrl_key = abap_true.
-    ENDIF.
-
-    " Titular de la cuenta.
-    " El BDC informa siempre LFBK-KOINH = 'TIT'.
-    <fs_bankdetail>-data-accountholder  = 'TIT'.
-    <fs_bankdetail>-datax-accountholder = abap_true.
-
-    " IBAN
-    " El programa anterior almacenaba el IBAN dividido en nueve
-    " campos por limitaciones de la dynpro. La estructura BP recibe
-    " directamente el IBAN completo
-    IF cs_prov-iban01 IS NOT INITIAL.
-
-      CONCATENATE
-      cs_prov-iban01 cs_prov-iban02
-      cs_prov-iban03 cs_prov-iban04
-      cs_prov-iban05 cs_prov-iban06
-      cs_prov-iban07 cs_prov-iban08
-      cs_prov-iban09 INTO lv_iban.
-
-      " Eliminar posibles espacios del IBAN
-      CONDENSE lv_iban NO-GAPS.
-
-      <fs_bankdetail>-data-iban  = lv_iban.
-      <fs_bankdetail>-datax-iban = abap_true.
-
-    ENDIF.
-
-  ENDMETHOD.
-
-  METHOD ensure_bank_master.
-
-    DATA ls_bank_address TYPE bapi1011_address.
-
-    CLEAR rs_return.
-
-    " El BDC antiguo solo ejecutaba esta lógica para el proceso de migración 3.
-    CHECK cs_prov-migr = 3.
-    CHECK cs_prov-land1 IS NOT INITIAL.
-    CHECK cs_prov-bankk IS NOT INITIAL.
-
-
-    " Comprobar si el banco ya existe.
-    " Si existe, el antiguo flujo tampoco necesitaba entrar en SAPLBANK para crearlo
-    SELECT SINGLE @abap_true FROM bnka
-    WHERE banks = @cs_prov-land1
-    AND bankl = @cs_prov-bankk
-    INTO @DATA(lv_bank_exists).
-
-    IF sy-subrc = 0.
-      RETURN.
-    ENDIF.
-
-    " El BDC antiguo hacía:
-    " BNKA-BANKA = 'OBLIG'
-    " BNKA-SWIFT = ''
-    " BAPI1011_ADDRESS-BANK_NAME corresponde al nombre
-    " del banco y SWIFT_CODE al código SWIFT.
-    ls_bank_address-bank_name  = 'OBLIG'.
-    ls_bank_address-swift_code = space.
-
-    " Crear maestro bancario.
-    " I_XUPDATE = SPACE:
-    " hacemos la actualización de forma síncrona y mantenemos la operación dentro de la LUW actual.
-
-    CALL FUNCTION 'BAPI_BANK_CREATE'
-      EXPORTING
-        bank_ctry    = cs_prov-land1
-        bank_key     = cs_prov-bankk
-        bank_address = ls_bank_address
-        i_xupdate    = space
-      IMPORTING
-        return       = rs_return.
-
-    " Error técnico del propio CALL FUNCTION
-    IF sy-subrc <> 0.
-      rs_return-type = 'E'.
-
-      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
-      WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
-      INTO rs_return-message.
-    ENDIF.
-
-  ENDMETHOD.
-*--------------------------------------------------------------------*
-*& VENDOR - COMPANY_DATA - COMPANY
-*--------------------------------------------------------------------*
-  METHOD map_company_data.
-
-    FIELD-SYMBOLS: <fs_company> TYPE vmds_ei_company.
-
-    " Los datos de sociedad solo existen cuando se informa BUKRS.
-    CHECK cs_prov-bukrs IS NOT INITIAL.
-
-    APPEND INITIAL LINE TO cs_data-vendor-company_data-company ASSIGNING <fs_company>.
-
-    <fs_company>-task = cv_task.
-
-    " Sociedad
-    <fs_company>-data_key-bukrs = cs_prov-bukrs.
-
-    " Cuenta asociada derivada previamente desde ZTBP001
-    <fs_company>-data-akont  = cs_prov-akont.
-    <fs_company>-datax-akont = abap_true.
-
-    " Grupo de tesorería
-    IF cs_prov-fdgrv IS NOT INITIAL.
-      <fs_company>-data-fdgrv  = cs_prov-fdgrv.
-      <fs_company>-datax-fdgrv = abap_true.
-    ENDIF.
-
-    " Condiciones de pago
-    IF cs_prov-zterm IS NOT INITIAL.
-      <fs_company>-data-zterm  = cs_prov-zterm.
-      <fs_company>-datax-zterm = abap_true.
-    ENDIF.
-
-    " Vías de pago
-    IF cs_prov-zwels IS NOT INITIAL.
-      <fs_company>-data-zwels  = cs_prov-zwels.
-      <fs_company>-datax-zwels = abap_true.
-    ENDIF.
-
-    " Verificación de factura doble
-    <fs_company>-data-reprf  = abap_true.
-    <fs_company>-datax-reprf = abap_true.
-
-    " País retención de impuesto
-    IF cs_prov-pais_r IS NOT INITIAL.
-      <fs_company>-data-qland  = cs_prov-pais_r.
-      <fs_company>-datax-qland = abap_true.
-    ENDIF.
-
-    " Bloqueo de contabilizacion
-    IF cs_prov-bloq IS NOT INITIAL.
-      <fs_company>-data-sperr  = abap_true.
-      <fs_company>-datax-sperr = abap_true.
-    ENDIF.
-
-    IF cs_prov-bloqj IS NOT INITIAL.
-      <fs_company>-data-zahls  = 'J'.
-      <fs_company>-datax-zahls = abap_true.
-    ENDIF.
-
-    " Retenciones
-    map_withholding_tax(
-    CHANGING
-      cs_prov = cs_prov
-      cs_company =  <fs_company> ).
-
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& VENDOR - COMPANY_DATA - COMPANY - WTAX_TYPE
-*--------------------------------------------------------------------*
-  METHOD map_withholding_tax.
-
-    FIELD-SYMBOLS: <fs_wtax> TYPE vmds_ei_wtax_type.
-    DATA: lv_task TYPE c LENGTH 1.
-
-    " La validación previa de ZFI0009 controla:
-    " PAIS_R + WITHT + WT_WITHCD estén todos informados o todos vacíos
-    CHECK cs_prov-pais_r IS NOT INITIAL
-    AND cs_prov-witht IS NOT INITIAL
-    AND cs_prov-wt_withcd IS NOT INITIAL.
-
-    lv_task = gc_task_insert.
-    IF cs_prov-partner IS NOT INITIAL.
-
-      SELECT SINGLE @abap_true FROM lfbw
-      WHERE lifnr = @cs_prov-partner
-      AND bukrs = @cs_prov-bukrs
-      AND witht = @cs_prov-witht
-      INTO @DATA(lv_exists).
+*   Otros campos que no se llaman igual que en estándar
+*  .....  añadir aquí los que correspondan
+    g_tblcli_wa-pais     = kna1-land1.
+    g_tblcli_wa-direc1   = kna1-stras.
+    g_tblcli_wa-poblac1  = kna1-ort01.
+    g_tblcli_wa-sort1    = kna1-sortl.
+    g_tblcli_wa-cod_post = kna1-pstlz.
+    g_tblcli_wa-stkzn    = kna1-stkzn.
+    g_tblcli_wa-region   = kna1-regio.
+    g_tblcli_wa-nif      = kna1-stcd1.
+    g_tblcli_wa-nif2     = kna1-stcd2.
+    g_tblcli_wa-nif3     = kna1-stcd3.
+  ENDIF.
+
+ENDFORM.                    " copia_datos_cliente
+*&---------------------------------------------------------------------*
+*&      Form  DESARCHIVAR
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM desarchivar .
+  LOOP AT t_tblcli WHERE sel = 'X'.
+    IF t_tblcli-kunnrsap IS INITIAL.
+      MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+      zfit_sol_cliente-estado = 'S'.
+      SELECT SINGLE ddtext FROM dd07v INTO zfit_sol_cliente-estadot
+                        WHERE domname = 'ZZDCLIEST'
+                          AND ddlanguage = sy-langu
+                          AND domvalue_l = zfit_sol_cliente-estado.
+      MODIFY zfit_sol_cliente.
       IF sy-subrc = 0.
-        lv_task = gc_task_update.
+        INSERT zficonv_cli_pms.
+*      DELETE FROM zficonv_cli_pms
+*        WHERE hotel = t_tblcli-bukrs
+*          AND cli_pms = t_tblcli-kunnr.
+*      MESSAGE s022(zfi01).
+        t_tblcli-estado = 'S'.
+        DELETE t_tblcli.
       ENDIF.
-    ENDIF.
-
-    APPEND INITIAL LINE TO cs_company-wtax_type-wtax_type ASSIGNING <fs_wtax>.
-
-    <fs_wtax>-task = lv_task.
-
-    " Tipo de retención ZFIEPROV-WITHT
-    <fs_wtax>-data_key-witht = cs_prov-witht.
-
-    " Código de retención ZFIEPROV-WT_WITHCD
-    <fs_wtax>-data-wt_withcd  = cs_prov-wt_withcd.
-    <fs_wtax>-datax-wt_withcd = abap_true.
-
-    " Sujeto a retención
-    " El BDC establecía siempre WT_SUBJCT = X
-    <fs_wtax>-data-wt_subjct  = abap_true.
-    <fs_wtax>-datax-wt_subjct = abap_true.
-
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& VENDOR - PURCHASING_DATA - PURCHASING
-*--------------------------------------------------------------------*
-  METHOD map_purchasing_data.
-
-    FIELD-SYMBOLS: <fs_purchasing> TYPE vmds_ei_purchasing.
-
-    CHECK cs_prov-ekorg IS NOT INITIAL.
-
-    APPEND INITIAL LINE TO cs_data-vendor-purchasing_data-purchasing ASSIGNING <fs_purchasing>.
-
-    <fs_purchasing>-task = cv_task.
-
-    " Organización de compras solicitada
-    <fs_purchasing>-data_key-ekorg = cs_prov-ekorg.
-
-    " Moneda
-    IF cs_prov-waers IS NOT INITIAL.
-      <fs_purchasing>-data-waers  = cs_prov-waers.
-      <fs_purchasing>-datax-waers = abap_true.
-    ENDIF.
-
-    " Condiciones de pago
-    IF cs_prov-zterm IS NOT INITIAL.
-      <fs_purchasing>-data-zterm  = cs_prov-zterm.
-      <fs_purchasing>-datax-zterm = abap_true.
-    ENDIF.
-
-    " Verificación de facturas basada en entrada de mercancías
-    <fs_purchasing>-data-webre  = abap_true.
-    <fs_purchasing>-datax-webre = abap_true.
-
-    " Proveedor sujeto a liquidación posterior
-    <fs_purchasing>-data-bolre  = abap_true.
-    <fs_purchasing>-datax-bolre = abap_true.
-
-    " Estructura índice activa para liquidación posterior
-    <fs_purchasing>-data-boind  = abap_true.
-    <fs_purchasing>-datax-boind = abap_true.
-
-    " Ajuste de volumen de negocio necesario
-    <fs_purchasing>-data-umsae  = abap_true.
-    <fs_purchasing>-datax-umsae = abap_true.
-
-    map_purchasing_functions(
-    CHANGING
-      cs_prov = cs_prov
-      cs_purchasing = <fs_purchasing> ).
-
-  ENDMETHOD.
-
-*--------------------------------------------------------------------*
-*& VENDOR - PURCHASING_DATA - PURCHASING - FUNCTIONS
-*--------------------------------------------------------------------*
-  METHOD map_purchasing_functions.
-
-    FIELD-SYMBOLS: <fs_function> TYPE vmds_ei_functions.
-    DATA: lv_parvw TYPE parvw,
-          lt_wyt3  TYPE TABLE OF wyt3.
-
-    " Funciones de interlocutor utilizadas por el proceso antiguo
-    DATA(lt_functions) = VALUE string_table(
-          ( `DP` )
-          ( `PR` )
-          ( `EF` ) ).
-
-    LOOP AT lt_functions INTO DATA(lv_function).
-      CLEAR: lv_parvw.
-      " Conversión de la función externa al código interno SAP
-      CALL FUNCTION 'CONVERSION_EXIT_PARVW_INPUT'
-        EXPORTING
-          input  = lv_function
-        IMPORTING
-          output = lv_parvw.
-
-      IF cs_prov-partner IS NOT INITIAL.
-
-        SELECT ltsnr, werks, parza
-        FROM wyt3
-        WHERE lifnr = @cs_prov-partner
-        AND ekorg = @cs_prov-ekorg
-        AND parvw = @lv_parvw
-        INTO CORRESPONDING FIELDS OF TABLE @lt_wyt3.
-
-        SORT lt_wyt3 BY parza.
-
-      ELSE.
-        CLEAR lt_wyt3.
-      ENDIF.
-
-      APPEND INITIAL LINE TO cs_purchasing-functions-functions ASSIGNING <fs_function>.
-      <fs_function>-data_key-parvw = lv_parvw.
-
-      IF lt_wyt3 IS NOT INITIAL.
-        <fs_function>-task = gc_task_update.
-
-        <fs_function>-data_key-ltsnr = lt_wyt3[ 1 ]-ltsnr.
-        <fs_function>-data_key-werks = lt_wyt3[ 1 ]-werks.
-        <fs_function>-data_key-parza = lt_wyt3[ 1 ]-parza.
-
-      ELSE.
-        <fs_function>-task = gc_task_insert.
-      ENDIF.
-
-      " No existen subrango ni centro en el BDC anterior
-      IF cs_prov-partner IS NOT INITIAL.
-        <fs_function>-data-partner = cs_prov-partner.
-      ENDIF.
-      <fs_function>-datax-partner = abap_true.
-    ENDLOOP.
-  ENDMETHOD.
-
-  METHOD call_api.
-
-    DATA:
-          lt_data TYPE cvis_ei_extern_t.
-
-    APPEND is_data TO lt_data.
-
-    cl_md_bp_maintain=>maintain(
-    EXPORTING
-      i_data   = lt_data
-    IMPORTING
-      e_return = rt_return ).
-
-    "CL_MD_BP_MAINTAIN=>VALIDATE_SINGLE
-  ENDMETHOD.
-
-  METHOD evaluate_return.
-
-    DATA: lv_text TYPE string.
-
-    cs_result-success = abap_true.
-
-    LOOP AT it_return ASSIGNING FIELD-SYMBOL(<fs_return>).
-
-      " Intentar recuperar número generado
-      IF cs_result-partner IS INITIAL AND <fs_return>-object_key IS NOT INITIAL.
-
-        DATA(lv_object_key) =  CONV string( <fs_return>-object_key ).
-
-        CONDENSE lv_object_key NO-GAPS.
-
-        IF strlen( lv_object_key ) <= 10.
-
-          cs_result-partner = |{ lv_object_key ALPHA = IN }|.
-
-        ENDIF.
-
-      ENDIF.
-
-      " Todos los errores
-      LOOP AT <fs_return>-object_msg ASSIGNING FIELD-SYMBOL(<fs_message>)
-      WHERE type = 'E'  OR type = 'A' OR type = 'X'.
-
-        cs_result-success = abap_false.
-
-        CLEAR lv_text.
-
-        MESSAGE ID <fs_message>-id TYPE 'S' NUMBER <fs_message>-number
-        WITH <fs_message>-message_v1  <fs_message>-message_v2
-        <fs_message>-message_v3 <fs_message>-message_v4
-        INTO lv_text.
-
-        IF cs_result-message IS INITIAL.
-
-          cs_result-message =  lv_text.
-
-        ELSE.
-
-          cs_result-message =  |{ cs_result-message } / { lv_text }|.
-
-        ENDIF.
-      ENDLOOP.
-
-    ENDLOOP.
-
-    IF cs_result-success = abap_false  AND cs_result-message IS INITIAL.
-
-      cs_result-message =  'Error al mantener el Business Partner'.
-
-    ENDIF.
-
-  ENDMETHOD.
-
-  METHOD maintain_company_reference.
-
-    DATA:
-      ls_extract_vendor TYPE vmds_ei_extern,
-      ls_extract_input  TYPE vmds_ei_main,
-      ls_extract_output TYPE vmds_ei_main,
-      ls_extract_error  TYPE cvis_message,
-      ls_data           TYPE cvis_ei_extern.
-
-    IF cs_prov-partner IS INITIAL OR cs_prov-bukrs IS INITIAL OR iv_ref_bukrs IS INITIAL.
-
-      rs_result-success = abap_false.
-      rs_result-message = 'Faltan proveedor, sociedad destino o sociedad de referencia'.
-      RETURN.
-
-    ENDIF.
-
-    cs_prov-partner = |{ cs_prov-partner ALPHA = IN }|.
-
-    " Recuperar GUID del BP existente
-    SELECT SINGLE partner_guid
-    FROM but000
-    WHERE partner = @cs_prov-partner
-    INTO @DATA(lv_partner_guid).
-
-    IF sy-subrc <> 0.
-      rs_result-success = abap_false.
-      rs_result-message = |El BP { cs_prov-partner } NO existe|.
-      RETURN.
-    ENDIF.
-
-    " Leer mediante API los datos actuales del Supplier
-    ls_extract_vendor-header-object_task = gc_task_modify.
-    ls_extract_vendor-header-object_instance-lifnr = cs_prov-partner.
-
-    APPEND ls_extract_vendor TO ls_extract_input-vendors.
-
-    vmd_ei_api_extract=>get_data(
-    EXPORTING
-      is_master_data = ls_extract_input
-    IMPORTING
-      es_master_data = ls_extract_output
-      es_error       = ls_extract_error ).
-
-    IF ls_extract_error-is_error = abap_true.
-      rs_result-success = abap_false.
-      rs_result-message =
-      |NO se pudieron recuperar los datos del proveedor { cs_prov-partner }|.
-      RETURN.
-    ENDIF.
-
-    " Recuperar Supplier extraído
-    READ TABLE ls_extract_output-vendors
-    ASSIGNING FIELD-SYMBOL(<fs_vendor>)
-    INDEX 1.
-
-    IF sy-subrc <> 0.
-      rs_result-success = abap_false.
-      rs_result-message =
-      |NO se encontraron datos del proveedor { cs_prov-partner }|.
-      RETURN.
-    ENDIF.
-
-    " Recuperar exactamente la sociedad que actuaba como modelo en FK01 / RF02K-REF_BUKRS
-    READ TABLE <fs_vendor>-company_data-company INTO DATA(ls_company) WITH KEY data_key-bukrs = iv_ref_bukrs.
-
-    IF sy-subrc <> 0.
-      rs_result-success = abap_false.
-      rs_result-message =
-      |El proveedor { cs_prov-partner } NO existe en la sociedad modelo { iv_ref_bukrs }|.
-      RETURN.
-    ENDIF.
-
-    " Preparar extensión del BP/Supplier existente
-    ls_data-partner-header-object_task = gc_task_update.
-    ls_data-partner-header-object_instance-bpartner     = cs_prov-partner.
-    ls_data-partner-header-object_instance-bpartnerguid = lv_partner_guid.
-
-    ls_data-vendor-header-object_task = gc_task_update.
-    ls_data-vendor-header-object_instance-lifnr = cs_prov-partner.
-
-    " Convertir la sociedad modelo en una NUEVA sociedad
-    ls_company-task = gc_task_insert.
-
-    " Sociedad destino
-    ls_company-data_key-bukrs = cs_prov-bukrs.
-
-
-    CLEAR:
-    ls_company-data-sperr, ls_company-datax-sperr,
-    ls_company-data-loevm,  ls_company-datax-loevm,
-    ls_company-data-zahls, ls_company-datax-zahls.
-
-    " Las áreas de reclamación pertenecen ahora a la nueva sociedad.
-    LOOP AT ls_company-dunning-dunning ASSIGNING FIELD-SYMBOL(<fs_dunning>).
-      <fs_dunning>-task = gc_task_insert.
-    ENDLOOP.
-
-    " Las retenciones que se copien desde la sociedad modelo también son nuevas asignaciones para la sociedad destino
-    LOOP AT ls_company-wtax_type-wtax_type ASSIGNING FIELD-SYMBOL(<fs_wtax>).
-      <fs_wtax>-task = gc_task_insert.
-    ENDLOOP.
-
-    " Tratamiento especial que hacía CREA_SOCIEDAD_MOD para ZTER
-    IF cs_prov-bu_group = 'ZTER'.
-
-      " País de retención
-      ls_company-data-qland  = cs_prov-pais_r.
-      ls_company-datax-qland = abap_true.
-
-      IF cs_prov-wt_withcd IS NOT INITIAL.
-
-        " El código antiguo obtenía WITHT de T059Z
-        SELECT SINGLE witht
-        FROM t059z
-        WHERE land1     = @cs_prov-pais
-        AND wt_withcd = @cs_prov-wt_withcd
-        INTO @DATA(lv_witht).
-
-        IF sy-subrc = 0.
-
-          READ TABLE ls_company-wtax_type-wtax_type ASSIGNING FIELD-SYMBOL(<fs_zter_wtax>) WITH KEY data_key-witht = lv_witht.
-
-          IF sy-subrc <> 0.
-
-            APPEND INITIAL LINE TO ls_company-wtax_type-wtax_type ASSIGNING <fs_zter_wtax>.
-            <fs_zter_wtax>-data_key-witht = lv_witht.
-
-          ENDIF.
-
-          <fs_zter_wtax>-task = gc_task_insert.
-
-          <fs_zter_wtax>-data-wt_withcd = cs_prov-wt_withcd.
-
-          <fs_zter_wtax>-datax-wt_withcd = abap_true.
-
-          <fs_zter_wtax>-data-wt_subjct = abap_true.
-
-          <fs_zter_wtax>-datax-wt_subjct = abap_true.
-
-        ENDIF.
-      ENDIF.
-    ENDIF.
-
-    " Añadir sociedad destino
-    APPEND ls_company
-    TO ls_data-vendor-company_data-company.
-
-    " Ejecutar CL_MD_BP_MAINTAIN
-    DATA(lt_return) = call_api( is_data = ls_data ).
-
-    rs_result = evaluate_return( it_return = lt_return ).
-
-    rs_result-return  = lt_return.
-    rs_result-partner = cs_prov-partner.
-
-    IF rs_result-success = abap_true.
-      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
-        EXPORTING
-          wait = abap_true.
     ELSE.
-      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+      MESSAGE i273(zfi01) WITH t_tblcli-kunnrsap.
     ENDIF.
-
-  ENDMETHOD.
-
-  METHOD maintain_company_block.
-
-    DATA ls_data TYPE cvis_ei_extern.
-
-    CHECK cs_prov-partner IS NOT INITIAL AND cs_prov-bukrs IS NOT INITIAL.
-
-    " Normalizar proveedor
-    cs_prov-partner = |{ cs_prov-partner ALPHA = IN }|.
-
-    " Recuperar GUID del BP existente
-    SELECT SINGLE partner_guid
-    FROM but000
-    WHERE partner = @cs_prov-partner
-    INTO @DATA(lv_partner_guid).
-
-    IF sy-subrc <> 0.
-      rs_result-success = abap_false.
-      rs_result-message = |El BP { cs_prov-partner } NO existe|.
-      RETURN.
-    ENDIF.
-
-    " Comprobar que el proveedor está extendido a la sociedad
-    SELECT SINGLE @abap_true
-    FROM lfb1
-    WHERE lifnr = @cs_prov-partner
-    AND bukrs = @cs_prov-bukrs
-    INTO @DATA(lv_exists).
-
-    IF sy-subrc <> 0.
-      rs_result-success = abap_false.
-      rs_result-message = |El proveedor { cs_prov-partner } NO existe en la sociedad { cs_prov-bukrs }|.
-      RETURN.
-    ENDIF.
-
-    " BP existente
-    ls_data-partner-header-object_task = gc_task_update.
-
-    ls_data-partner-header-object_instance-bpartner = cs_prov-partner.
-
-    ls_data-partner-header-object_instance-bpartnerguid = lv_partner_guid.
-
-    " Supplier existente
-    ls_data-vendor-header-object_task = gc_task_update.
-
-    ls_data-vendor-header-object_instance-lifnr = cs_prov-partner.
-
-    " Sociedad existente
-    APPEND INITIAL LINE TO ls_data-vendor-company_data-company ASSIGNING FIELD-SYMBOL(<fs_company>).
-
-    <fs_company>-task = gc_task_update.
-
-    <fs_company>-data_key-bukrs = cs_prov-bukrs.
-
-    " Equivalente al antiguo FK05: LFB1-SPERR = X
-    <fs_company>-data-sperr = abap_true.
-
-    <fs_company>-datax-sperr = abap_true.
-
-    " Ejecutar API
-    DATA(lt_return) =  call_api( is_data = ls_data ).
-
-    rs_result = evaluate_return( it_return = lt_return ).
-
-    rs_result-return  = lt_return.
-    rs_result-partner = cs_prov-partner.
-
-    IF rs_result-success = abap_true.
-      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
-        EXPORTING
-          wait = abap_true.
-    ELSE.
-      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
-    ENDIF.
-  ENDMETHOD.
-
-  METHOD maintain_company_update.
-
-    DATA:
-          ls_data TYPE cvis_ei_extern.
-
-    FIELD-SYMBOLS:
-      <fs_company> TYPE vmds_ei_company,
-      <fs_wtax>    TYPE vmds_ei_wtax_type.
-
-    IF cs_prov-partner IS INITIAL OR cs_prov-bukrs IS INITIAL.
-
-      rs_result-success = abap_false.
-      rs_result-message = 'Faltan proveedor o sociedad para la modificación'.
-      RETURN.
-    ENDIF.
-
-    cs_prov-partner = |{ cs_prov-partner ALPHA = IN }|.
-
-    " Recuperar BP existente
-    SELECT SINGLE partner_guid
-    FROM but000
-    WHERE partner = @cs_prov-partner
-    INTO @DATA(lv_partner_guid).
-
-    IF sy-subrc <> 0.
-      rs_result-success = abap_false.
-      rs_result-message = |El BP { cs_prov-partner } NO existe|.
-      RETURN.
-    ENDIF.
-
-    " Comprobar sociedad existente - FK02 únicamente modificaba una sociedad ya creada
-    SELECT SINGLE @abap_true
-    FROM lfb1
-    WHERE lifnr = @cs_prov-partner
-    AND bukrs = @cs_prov-bukrs
-    INTO @DATA(lv_company_exists).
-
-    IF sy-subrc <> 0.
-      rs_result-success = abap_false.
-      rs_result-message = |El proveedor { cs_prov-partner } NO existe en la sociedad { cs_prov-bukrs }|.
-      RETURN.
-    ENDIF.
-
-    " BP existente
-    ls_data-partner-header-object_task = gc_task_update.
-
-    ls_data-partner-header-object_instance-bpartner = cs_prov-partner.
-
-    ls_data-partner-header-object_instance-bpartnerguid = lv_partner_guid.
-
-    " Supplier existente
-    ls_data-vendor-header-object_task = gc_task_update.
-
-    ls_data-vendor-header-object_instance-lifnr = cs_prov-partner.
-
-    " Sociedad existente
-    APPEND INITIAL LINE TO ls_data-vendor-company_data-company ASSIGNING <fs_company>.
-
-    <fs_company>-task = gc_task_update.
-    <fs_company>-data_key-bukrs = cs_prov-bukrs.
-
-    " FK02 antiguo: LFB1-AKONT solo se modificaba si venía informado
-    IF cs_prov-akont IS NOT INITIAL.
-      <fs_company>-data-akont = cs_prov-akont.
-      <fs_company>-datax-akont = abap_true.
-    ENDIF.
-
-    " Verificación de facturas dobles:
-    " el BDC siempre establecía REPRF = X
-    <fs_company>-data-reprf = abap_true.
-
-    <fs_company>-datax-reprf = abap_true.
-
-    " Condiciones de pago
-    IF cs_prov-zterm IS NOT INITIAL.
-      <fs_company>-data-zterm = cs_prov-zterm.
-      <fs_company>-datax-zterm = abap_true.
-    ENDIF.
-
-    " Vías de pago
-    IF cs_prov-zwels IS NOT INITIAL.
-      <fs_company>-data-zwels = cs_prov-zwels.
-      <fs_company>-datax-zwels = abap_true.
-    ENDIF.
-
-    " Datos de retención- Equivalente a CREA_SOCIEDAD_3
-    <fs_company>-data-qland = cs_prov-pais_r.
-
-    <fs_company>-datax-qland = abap_true.
-
-    IF cs_prov-witht IS NOT INITIAL AND cs_prov-wt_withcd IS NOT INITIAL.
-
-      " Determinar si la retención ya existe
-      SELECT SINGLE @abap_true
-      FROM lfbw
-      WHERE lifnr = @cs_prov-partner
-      AND bukrs = @cs_prov-bukrs
-      AND witht = @cs_prov-witht
-      INTO @DATA(lv_wtax_exists).
-
-      APPEND INITIAL LINE TO <fs_company>-wtax_type-wtax_type ASSIGNING <fs_wtax>.
-
-      <fs_wtax>-task = COND #( WHEN sy-subrc = 0
-      THEN gc_task_update ELSE gc_task_insert ).
-
-      <fs_wtax>-data_key-witht = cs_prov-witht.
-      <fs_wtax>-data-wt_withcd = cs_prov-wt_withcd.
-      <fs_wtax>-datax-wt_withcd = abap_true.
-
-      " El BDC siempre informaba sujeto a retención
-      <fs_wtax>-data-wt_subjct = abap_true.
-      <fs_wtax>-datax-wt_subjct = abap_true.
-    ENDIF.
-
-    " Ejecutar CL_MD_BP_MAINTAIN
-    DATA(lt_return) = call_api( is_data = ls_data ).
-
-    rs_result = evaluate_return( it_return = lt_return ).
-    rs_result-return  = lt_return.
-    rs_result-partner = cs_prov-partner.
-
-    IF rs_result-success = abap_true.
-      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
-        EXPORTING
-          wait = abap_true.
-    ELSE.
-      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
-    ENDIF.
-  ENDMETHOD.
-ENDCLASS.
-
-FORM bp_maintain_request
-CHANGING
-  cs_prov    TYPE zfieprov
-  cv_success TYPE abap_bool
-  cv_partner TYPE bu_partner
-  cv_message TYPE string.
-
-  DATA: lo_bp     TYPE REF TO zcl_bp,
-        ls_result TYPE ty_result.
-
-  CLEAR: cv_success, cv_partner, cv_message.
-
-  lo_bp = NEW zcl_bp( ).
-
-  ls_result =  lo_bp->maintain_bp(  CHANGING cs_prov = cs_prov ).
-
-  cv_success = ls_result-success.
-  cv_partner = ls_result-partner.
-  cv_message = ls_result-message.
-
-  " Mantener el comportamiento actual de ZFI0009:
-  " los mensajes se muestran posteriormente mediante LT_LOG
-  LOOP AT ls_result-return  ASSIGNING FIELD-SYMBOL(<fs_return>).
-
-    LOOP AT <fs_return>-object_msg ASSIGNING FIELD-SYMBOL(<fs_message>).
-
-      CLEAR lt_log.
-
-      lt_log-msgid  = <fs_message>-id.
-      lt_log-msgtyp = <fs_message>-type.
-      lt_log-msgnr  = <fs_message>-number.
-      lt_log-msgv1  = <fs_message>-message_v1.
-      lt_log-msgv2  = <fs_message>-message_v2.
-      lt_log-msgv3  = <fs_message>-message_v3.
-      lt_log-msgv4  = <fs_message>-message_v4.
-
-      APPEND lt_log.
-    ENDLOOP.
   ENDLOOP.
+  IF sy-subrc <> 0.
+    MESSAGE w031(zfi01).
+  ENDIF.
+ENDFORM.                    " DESARCHIVAR
+*&---------------------------------------------------------------------*
+*&      Form  F_BDC_SCREEN_0125
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_bdc_screen_0125 .
+  PERFORM bdc_dynpro      USING 'SAPMF02D'  '0125'.
+*  PERFORM bdc_field       USING 'BDC_CURSOR'  'KNA1-BRSCH'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'  '/00'.
+**  PERFORM bdc_field       USING 'KNA1-BRSCH'  t_tblcli-brsch.
+ENDFORM.                    " F_BDC_SCREEN_0125
 
-
-ENDFORM.
