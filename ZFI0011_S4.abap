@@ -1048,70 +1048,167 @@ ENDFORM.                    " grabar_sel
 *INI GAP016_BP
 FORM call_batch.
 
+*  CLEAR: messtab, lt_log.
+*  REFRESH: messtab, lt_log.
+*
+*  LOOP AT t_tblcli WHERE sel = 'X'.
+*
+**    PERFORM derivar_akont CHANGING t_tblcli.
+*
+*    IF t_tblcli-bukrs IS NOT INITIAL
+*    AND t_tblcli-akont IS INITIAL.
+*      lt_log-msgtyp = 'E'.
+*      lt_log-msgid  = 'ZFI01'.
+*      lt_log-msgnr  = '015'.
+*      lt_log-msgv1  = t_tblcli-bukrs.
+*      APPEND lt_log.
+*      CONTINUE.
+*    ENDIF.
+*
+*    PERFORM f_check_nif.
+*
+*    IF answer <> 'J'.
+*      CONTINUE.
+*    ENDIF.
+*
+*    IF t_tblcli-partner IS INITIAL.
+*      PERFORM f_bp_create CHANGING lv_subrc.
+*    ELSE.
+*      PERFORM comprobar_partner.
+*
+*      IF answer <> 'J'.
+*        CONTINUE.
+*      ENDIF.
+*
+*      IF t_tblcli-bukrs IS NOT INITIAL.
+*        PERFORM f_bp_extend_flcu00 CHANGING lv_subrc.
+*      ELSE.
+*        CLEAR lv_subrc.
+*      ENDIF.
+*    ENDIF.
+*
+*    IF lv_subrc = 0.
+*      t_tblcli-estado = 'V'.
+*      t_tblcli-sel = space.
+*
+*      SELECT SINGLE ddtext
+*        FROM dd07v
+*        INTO @t_tblcli-estadot
+*        WHERE domname    = 'ZZDCLIEST'
+*          AND ddlanguage = @sy-langu
+*          AND domvalue_l = @t_tblcli-estado.
+*
+*      MODIFY t_tblcli.
+*
+*      MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+*
+*      IF p_new IS INITIAL.
+*        MODIFY zfit_sol_cliente.
+*      ENDIF.
+*    ENDIF.
+*
+*  ENDLOOP.
+*
+*  CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
+*    TABLES
+*      i_message_tab = lt_log.
+
+  DATA:
+        ls_cliente TYPE zfit_sol_cliente,
+        lv_success TYPE abap_bool,
+        lv_partner TYPE bu_partner,
+        lv_message TYPE string.
+
   CLEAR: messtab, lt_log.
   REFRESH: messtab, lt_log.
 
-  LOOP AT t_tblcli WHERE sel = 'X'.
+  LOOP AT t_tblcli WHERE sel = abap_true.
 
-    PERFORM derivar_akont CHANGING t_tblcli.
+    CLEAR: ls_cliente, lv_success,
+    lv_partner, lv_message.
 
-    IF t_tblcli-bukrs IS NOT INITIAL
-    AND t_tblcli-akont IS INITIAL.
+     PERFORM derivar_akont CHANGING t_tblcli.
+
+     IF t_tblcli-bukrs IS NOT INITIAL AND t_tblcli-akont IS INITIAL.
+
+      CLEAR lt_log.
+
       lt_log-msgtyp = 'E'.
       lt_log-msgid  = 'ZFI01'.
       lt_log-msgnr  = '015'.
       lt_log-msgv1  = t_tblcli-bukrs.
+
       APPEND lt_log.
+
       CONTINUE.
+
     ENDIF.
 
-    PERFORM f_check_nif.
+     PERFORM f_check_nif.
 
     IF answer <> 'J'.
       CONTINUE.
     ENDIF.
 
-    IF t_tblcli-partner IS INITIAL.
-      PERFORM f_bp_create CHANGING lv_subrc.
-    ELSE.
-      PERFORM comprobar_partner.
+     MOVE-CORRESPONDING t_tblcli TO ls_cliente.
 
-      IF answer <> 'J'.
-        CONTINUE.
-      ENDIF.
+     PERFORM bp_maintain_request CHANGING ls_cliente lv_success lv_partner lv_message.
 
-      IF t_tblcli-bukrs IS NOT INITIAL.
-        PERFORM f_bp_extend_flcu00 CHANGING lv_subrc.
-      ELSE.
-        CLEAR lv_subrc.
-      ENDIF.
+     IF lv_success = abap_false.
+      CONTINUE.
     ENDIF.
 
-    IF lv_subrc = 0.
-      t_tblcli-estado = 'V'.
-      t_tblcli-sel = space.
+     MOVE-CORRESPONDING ls_cliente TO t_tblcli.
 
-      SELECT SINGLE ddtext
-        FROM dd07v
-        INTO @t_tblcli-estadot
-        WHERE domname    = 'ZZDCLIEST'
-          AND ddlanguage = @sy-langu
-          AND domvalue_l = @t_tblcli-estado.
-
-      MODIFY t_tblcli.
-
-      MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
-
-      IF p_new IS INITIAL.
-        MODIFY zfit_sol_cliente.
-      ENDIF.
+    IF lv_partner IS NOT INITIAL.
+      t_tblcli-partner = lv_partner.
     ENDIF.
 
+    " Solicitud procesada
+    t_tblcli-estado = 'V'.
+    t_tblcli-sel    = space.
+
+    " Texto del estado
+    SELECT SINGLE ddtext
+    FROM dd07v
+    WHERE domname    = 'ZZDCLIEST'
+    AND ddlanguage = @sy-langu
+    AND domvalue_l = @t_tblcli-estado
+    INTO @t_tblcli-estadot.
+
+    " Actualizar table control
+    MODIFY t_tblcli.
+
+     MOVE-CORRESPONDING t_tblcli TO zfit_sol_cliente.
+
+    IF p_new IS INITIAL.
+
+      MODIFY zfit_sol_cliente.
+
+      IF sy-subrc <> 0.
+
+        " El BP ya está confirmado en este punto.
+        " Si falla la actualización de la solicitud informamos el problema
+        CLEAR lt_log.
+
+        lt_log-msgtyp = 'E'.
+        lt_log-msgid  = '00'.
+        lt_log-msgnr  = '398'.
+        lt_log-msgv1  = 'BP creado/modificado, error actualizando solicitud'.
+
+        APPEND lt_log.
+      ENDIF.
+    ENDIF.
   ENDLOOP.
 
-  CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
+  " Mostrar mensajes acumulados durante todo el procesamiento
+  IF lt_log[] IS NOT INITIAL.
+
+    CALL FUNCTION 'C14Z_MESSAGES_SHOW_AS_POPUP'
     TABLES
       i_message_tab = lt_log.
+
+  ENDIF.
 
 ENDFORM.
 *FIN GAP016_BP
@@ -4443,3 +4540,76 @@ CLASS zcl_bp IMPLEMENTATION.
 
   ENDMETHOD.
 ENDCLASS.
+
+FORM bp_maintain_request
+CHANGING
+ cs_cliente TYPE zfit_sol_cliente
+ cv_success TYPE abap_bool
+ cv_partner TYPE bu_partner
+ cv_message TYPE string.
+
+  DATA:
+    lo_bp           TYPE REF TO zcl_bp,
+    ls_result       TYPE ty_result,
+    lv_error_logged TYPE abap_bool,
+    lv_length       TYPE i.
+
+  CLEAR: cv_success, cv_partner, cv_message, lv_error_logged.
+
+  lo_bp = NEW zcl_bp( ).
+
+  ls_result = lo_bp->maintain_bp(
+  CHANGING
+    cs_cliente = cs_cliente ).
+
+  cv_success = ls_result-success.
+  cv_partner = ls_result-partner.
+  cv_message = ls_result-message.
+  LOOP AT ls_result-return ASSIGNING FIELD-SYMBOL(<fs_return>).
+    LOOP AT <fs_return>-object_msg ASSIGNING FIELD-SYMBOL(<fs_message>).
+
+      CLEAR lt_log.
+
+      lt_log-msgid  = <fs_message>-id.
+      lt_log-msgtyp = <fs_message>-type.
+      lt_log-msgnr  = <fs_message>-number.
+      lt_log-msgv1  = <fs_message>-message_v1.
+      lt_log-msgv2  = <fs_message>-message_v2.
+      lt_log-msgv3  = <fs_message>-message_v3.
+      lt_log-msgv4  = <fs_message>-message_v4.
+
+      APPEND lt_log.
+
+      IF <fs_message>-type CA 'EAX'.
+        lv_error_logged = abap_true.
+      ENDIF.
+    ENDLOOP.
+  ENDLOOP.
+
+  IF cv_success = abap_false AND lv_error_logged = abap_false AND cv_message IS NOT INITIAL.
+
+    CLEAR lt_log.
+
+    lt_log-msgtyp = 'E'.
+    lt_log-msgid  = '00'.
+    lt_log-msgnr  = '398'.
+
+    lv_length = strlen( cv_message ).
+
+    lt_log-msgv1 = cv_message.
+
+    IF lv_length > 50.
+      lt_log-msgv2 = cv_message+50.
+    ENDIF.
+
+    IF lv_length > 100.
+      lt_log-msgv3 = cv_message+100.
+    ENDIF.
+
+    IF lv_length > 150.
+      lt_log-msgv4 = cv_message+150.
+    ENDIF.
+
+    APPEND lt_log.
+  ENDIF.
+ENDFORM.
