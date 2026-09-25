@@ -13,6 +13,7 @@ INCLUDE ZFI0011TOP.
 INCLUDE ZFI0011EVT.
 INCLUDE ZFI0011PBO.
 INCLUDE ZFI0011PAI.
+INCLUDE ZFI0011CLS.
 INCLUDE ZFI0011F01.
 
 **&---------------------------------------------------------------------*
@@ -58,18 +59,7 @@ DATA: BEGIN OF t_tblcli OCCURS 0,
         INCLUDE STRUCTURE zfit_sol_cliente.
 DATA END OF t_tblcli.
 DATA lv_ini TYPE i.
-*INI GAP016_BP
-CONSTANTS:
-  gc_bp_type_org TYPE bu_type VALUE '2',
-  gc_role_flcu00 TYPE bu_partnerrole VALUE 'FLCU00',
-  gc_group_zint  TYPE bu_group VALUE 'ZINT',
-  gc_koart_debtor TYPE koart VALUE 'D',
-  gc_rfc_generico_mx TYPE dfkkbptaxnum-taxnumxl
-    VALUE 'XEXX010101000'.
 
-DATA:
-  gv_customer TYPE kunnr.
-*FIN GAP016_BP
 DATA: BEGIN OF t_tblcli2 OCCURS 0,
         solnum TYPE zfit_sol_cliente-solnum,
         bukrs TYPE zfit_sol_cliente-bukrs,
@@ -177,6 +167,41 @@ DATA: lv_verif TYPE i,
 FIELD-SYMBOLS: <itab>  TYPE ANY,
                <field> TYPE ANY.
 
+"DTT - GAP016_BP
+TYPES:
+  BEGIN OF ty_result,
+    success TYPE abap_bool,
+    partner TYPE bu_partner,
+    message TYPE string,
+    return  TYPE bapiretm,
+  END OF ty_result,
+  BEGIN OF ty_context,
+    valid         TYPE abap_bool,
+    message       TYPE string,
+    bp_task       TYPE c LENGTH 1,
+    customer_task TYPE c LENGTH 1,
+    address_task  TYPE c LENGTH 1,
+    company_task  TYPE c LENGTH 1,
+    partner_guid  TYPE but000-partner_guid,
+    address_guid  TYPE but020-address_guid,
+    customer      TYPE kunnr,
+  END OF ty_context.
+
+CONSTANTS:
+  gc_task_insert     TYPE c LENGTH 1 VALUE 'I',
+  gc_task_UPDATE     TYPE c LENGTH 1 VALUE 'U',
+  gc_task_modify     TYPE c LENGTH 1 VALUE 'M',
+  gc_task_delete     TYPE c LENGTH 1 VALUE 'D',
+  gc_role_flCU00     TYPE bu_partnerrole VALUE 'FLCU00',
+  gc_role_flCU01     TYPE bu_partnerrole VALUE 'FLCU01',
+  gc_bp_org          TYPE bu_type VALUE '2',
+  gc_rfc_generico_mx TYPE bptaxnumxl VALUE 'XEXX010101000',
+  gc_group_zint      TYPE bu_group VALUE 'ZINT',
+  gc_koart_debtor    TYPE koart VALUE 'D'.
+
+DATA:
+      gv_customer TYPE kunnr.
+"DTT - GAP016_BP
 
 PARAMETERS: p_new TYPE check USER-COMMAND new.
 
@@ -3340,3 +3365,1081 @@ FORM download_xls.
 ENDFORM.
 
 *FIN GAP016_BP
+
+*&---------------------------------------------------------------------*
+*& Include          ZFI0011CLS
+*&---------------------------------------------------------------------*
+CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
+
+  PUBLIC SECTION.
+
+    METHODS maintain_bp
+      CHANGING
+        cs_cliente       TYPE zfit_sol_cliente
+      RETURNING
+        VALUE(rs_result) TYPE ty_result.
+
+  PRIVATE SECTION.
+
+    METHODS determine_context
+      CHANGING
+        cs_cliente        TYPE zfit_sol_cliente
+      RETURNING
+        VALUE(rs_context) TYPE ty_context.
+
+    METHODS map_bp_data
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_context TYPE ty_context
+        cs_data    TYPE cvis_ei_extern.
+
+    METHODS map_roles
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_data    TYPE cvis_ei_extern.
+
+    METHODS map_tax_numbers
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_data    TYPE cvis_ei_extern.
+
+    METHODS map_tax_number
+      IMPORTING
+        iv_extended TYPE abap_bool
+      CHANGING
+        cs_cliente  TYPE zfit_sol_cliente
+        cv_taxtype  TYPE dfkkbptaxnum-taxtype
+        cv_value    TYPE string
+        cs_data     TYPE cvis_ei_extern.
+
+    METHODS map_bp_address
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_context TYPE ty_context
+        cs_data    TYPE cvis_ei_extern.
+
+    METHODS map_bp_communication
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_context TYPE ty_context
+        cs_address TYPE bus_ei_bupa_address.
+
+    METHODS map_company_data
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_context TYPE ty_context
+        cs_data    TYPE cvis_ei_extern.
+
+    METHODS map_dunning_data
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_context TYPE ty_context
+        cs_company TYPE cmds_ei_company.
+
+    METHODS map_withholding_tax
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_context TYPE ty_context
+        cs_company TYPE cmds_ei_company.
+
+    METHODS map_customer_data
+      CHANGING
+        cs_cliente TYPE zfit_sol_cliente
+        cs_context TYPE ty_context
+        cs_data    TYPE cvis_ei_extern.
+
+    METHODS call_api
+      IMPORTING
+        is_data          TYPE cvis_ei_extern
+      RETURNING
+        VALUE(rt_return) TYPE bapiretm.
+
+    METHODS evaluate_return
+      IMPORTING
+        it_return        TYPE bapiretm
+      RETURNING
+        VALUE(rs_result) TYPE ty_result.
+
+ENDCLASS.
+
+CLASS zcl_bp IMPLEMENTATION.
+
+  METHOD determine_context.
+
+    DATA:
+          lv_customer TYPE kunnr.
+
+    rs_context-valid = abap_true.
+
+    " BP NUEVO
+    IF cs_cliente-partner IS INITIAL.
+
+      rs_context-bp_task  = gc_task_insert.
+      rs_context-address_task = gc_task_insert.
+
+      " GUID técnico obligatorio para el nuevo BP
+      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
+      RECEIVING
+      uuid = rs_context-partner_guid ).
+
+      " GUID de la dirección estándar
+      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
+      RECEIVING
+      uuid = rs_context-address_guid ).
+
+      " Solo creamos Customer/FLCU00 cuando existe sociedad
+      IF cs_cliente-bukrs IS NOT INITIAL.
+        rs_context-customer_task = gc_task_insert.
+        rs_context-company_task  = gc_task_insert.
+      ENDIF.
+
+      RETURN.
+
+    ENDIF.
+
+    " BP EXISTENTE
+    SELECT SINGLE partner_guid,
+    bu_group
+    FROM but000
+    WHERE partner = @cs_cliente-partner
+    INTO @DATA(ls_but000).
+
+    IF sy-subrc <> 0.
+
+      rs_context-valid = abap_false.
+      rs_context-message = |El Business Partner { cs_cliente-partner } NO existe|.
+
+      RETURN.
+
+    ENDIF.
+
+    rs_context-bp_task      = gc_task_update.
+    rs_context-partner_guid = ls_but000-partner_guid.
+
+    " La agrupación de un BP existente no debe modificarse
+    IF cs_cliente-bu_group IS NOT INITIAL
+    AND cs_cliente-bu_group <> ls_but000-bu_group.
+
+      rs_context-valid = abap_false.
+      rs_context-message =
+      |El BP { cs_cliente-partner } pertenece a la agrupación | &&
+      |{ ls_but000-bu_group }, NO a { cs_cliente-bu_group }|.
+
+      RETURN.
+
+    ENDIF.
+
+    " DIRECCIÓN EXISTENTE
+    SELECT address_guid,
+    addr_valid_to
+    FROM but020
+    WHERE partner = @cs_cliente-partner
+    INTO TABLE @DATA(lt_address).
+
+    IF lt_address IS NOT INITIAL.
+
+      SORT lt_address BY addr_valid_to DESCENDING.
+
+      rs_context-address_guid = lt_address[ 1 ]-address_guid.
+      rs_context-address_task = gc_task_update.
+
+    ELSE.
+
+      rs_context-address_task = gc_task_insert.
+
+      cl_system_uuid=>if_system_uuid_static~create_uuid_c32(
+      RECEIVING
+      uuid = rs_context-address_guid ).
+
+    ENDIF.
+
+    " SIN SOCIEDAD NO HAY FLCU00
+    IF cs_cliente-bukrs IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    " ¿EL BP YA ESTÁ VINCULADO A UN CUSTOMER?
+    SELECT SINGLE customer
+    FROM cvi_cust_link
+    WHERE partner_guid = @ls_but000-partner_guid
+    INTO @lv_customer.
+
+    IF sy-subrc <> 0.
+
+      " BP existe, pero todavía no es Customer
+      rs_context-customer_task = gc_task_insert.
+      rs_context-company_task  = gc_task_insert.
+
+      RETURN.
+
+    ENDIF.
+
+    " BP ya tiene Customer
+    " Guardamos el KUNNR asociado al BP
+    rs_context-customer = lv_customer.
+    rs_context-customer_task = gc_task_update.
+
+    " ¿EXISTE YA EN LA SOCIEDAD?
+    SELECT SINGLE @abap_true
+    FROM knb1
+    WHERE kunnr = @lv_customer
+    AND bukrs = @cs_cliente-bukrs
+    INTO @DATA(lv_company_exists).
+
+    rs_context-company_task =
+    COND #(
+    WHEN sy-subrc = 0
+    THEN gc_task_update
+    ELSE gc_task_insert ).
+
+  ENDMETHOD.
+
+  METHOD maintain_bp.
+
+    DATA:
+      ls_data    TYPE cvis_ei_extern,
+      ls_context TYPE ty_context.
+
+    " Normalizar el número de BP si viene informado
+    IF cs_cliente-partner IS NOT INITIAL.
+      cs_cliente-partner = |{ cs_cliente-partner ALPHA = IN }|.
+    ENDIF.
+
+    " Determinar si debemos crear/modificar BP, Customer, dirección y sociedad
+    ls_context = determine_context(
+    CHANGING
+      cs_cliente = cs_cliente ).
+
+    IF ls_context-valid = abap_false.
+      rs_result-success = abap_false.
+      rs_result-message = ls_context-message.
+
+      RETURN.
+
+    ENDIF.
+
+    " Datos generales del Business Partner
+    map_bp_data(
+    CHANGING
+      cs_cliente = cs_cliente
+      cs_context = ls_context
+      cs_data    = ls_data ).
+
+    " Números fiscales
+    map_tax_numbers(
+    CHANGING
+      cs_cliente = cs_cliente
+      cs_data    = ls_data ).
+
+    " Dirección y comunicaciones del BP
+    map_bp_address(
+    CHANGING
+      cs_cliente = cs_cliente
+      cs_context = ls_context
+      cs_data    = ls_data ).
+
+    " 6. Datos Customer.
+    IF cs_cliente-bukrs IS NOT INITIAL.
+      " Rol FLCU00
+      map_roles(
+      CHANGING
+        cs_cliente = cs_cliente
+        cs_data    = ls_data ).
+
+      " Datos generales Customer / KNA1
+      map_customer_data(
+      CHANGING
+        cs_cliente = cs_cliente
+        cs_context = ls_context
+        cs_data    = ls_data ).
+
+      " Datos de sociedad Customer / KNB1
+      map_company_data(
+      CHANGING
+        cs_cliente = cs_cliente
+        cs_context = ls_context
+        cs_data    = ls_data ).
+
+    ENDIF.
+
+    " Ejecutar mantenimiento BP/CVI
+    DATA(lt_return) = call_api( is_data = ls_data ).
+
+    " Evaluar mensajes devueltos por CL_MD_BP_MAINTAIN
+    rs_result = evaluate_return( it_return = lt_return ).
+
+    rs_result-return = lt_return.
+
+    " Commit o rollback
+    IF rs_result-success = abap_true.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = abap_true.
+
+      " Si era un BP nuevo, recuperar el número generado
+      IF cs_cliente-partner IS INITIAL.
+
+        " Primero intentaremos utilizar el número recuperado
+        " desde los mensajes de CL_MD_BP_MAINTAIN
+        IF rs_result-partner IS INITIAL.
+
+          " Como respaldo buscamos el BP por el GUID generado
+          SELECT SINGLE partner
+          FROM but000
+          WHERE partner_guid = @ls_context-partner_guid
+          INTO @rs_result-partner.
+
+        ENDIF.
+
+        IF rs_result-partner IS NOT INITIAL.
+          cs_cliente-partner = rs_result-partner.
+        ELSE.
+
+          rs_result-success = abap_false.
+          rs_result-message =
+          'El BP fue procesado, pero no se pudo recuperar el número generado'.
+
+        ENDIF.
+      ELSE.
+        " BP existente
+        rs_result-partner = cs_cliente-partner.
+
+      ENDIF.
+    ELSE.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD map_bp_data.
+
+    " Cabecera del Business Partner
+    cs_data-partner-header-object_task = cs_context-bp_task.
+
+    cs_data-partner-header-object_instance-bpartnerguid = cs_context-partner_guid.
+
+    " Si es un BP existente, informamos su número
+    IF cs_cliente-partner IS NOT INITIAL.
+      cs_data-partner-header-object_instance-bpartner = cs_cliente-partner.
+    ENDIF.
+
+    " Datos de control del BP
+    " Solo se informa categoría y agrupación durante la creación
+    IF cs_context-bp_task = gc_task_insert.
+
+      cs_data-partner-central_data-common-data-bp_control-category = gc_bp_org.
+      cs_data-partner-central_data-common-data-bp_control-grouping = cs_cliente-bu_group.
+
+    ENDIF.
+
+    " Clase de interlocutor comercial
+    cs_data-partner-central_data-common-data-bp_centraldata-partnertype = cs_cliente-bu_group.
+
+    cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = abap_true.
+
+    " Nombre de la organización
+    cs_data-partner-central_data-common-data-bp_organization-name1 = cs_cliente-name1.
+    cs_data-partner-central_data-common-datax-bp_organization-name1 = abap_true.
+    cs_data-partner-central_data-common-data-bp_organization-name2 = cs_cliente-name2.
+    cs_data-partner-central_data-common-datax-bp_organization-name2 = abap_true.
+
+    " Términos de búsqueda
+    cs_data-partner-central_data-common-data-bp_centraldata-searchterm1 = cs_cliente-sort1.
+    cs_data-partner-central_data-common-datax-bp_centraldata-searchterm1 = abap_true.
+    cs_data-partner-central_data-common-data-bp_centraldata-searchterm2 = cs_cliente-sort2.
+    cs_data-partner-central_data-common-datax-bp_centraldata-searchterm2 =  abap_true.
+
+    " Persona física a efectos fiscales
+    cs_data-partner-central_data-taxnumber-common-data-nat_person = cs_cliente-stkzn.
+    cs_data-partner-central_data-taxnumber-common-datax-nat_person = abap_true.
+
+  ENDMETHOD.
+
+  METHOD map_roles.
+
+    FIELD-SYMBOLS:
+    <fs_role> TYPE bus_ei_bupa_roles.
+
+    DATA:
+          lv_role_exists TYPE abap_bool VALUE abap_false.
+
+    " FLCU00 únicamente se crea si existe Sociedad
+    CHECK cs_cliente-bukrs IS NOT INITIAL.
+
+    " Si el BP ya existe, comprobamos si ya tiene FLCU00
+    IF cs_cliente-partner IS NOT INITIAL.
+
+      SELECT SINGLE @abap_true
+      FROM but100
+      WHERE partner = @cs_cliente-partner
+      AND rltyp    = @gc_role_flcu00
+      INTO @lv_role_exists.
+
+    ENDIF.
+
+    " Si el rol todavía no existe, solicitar su creación
+    IF lv_role_exists = abap_false.
+
+      APPEND INITIAL LINE TO cs_data-partner-central_data-role-roles ASSIGNING <fs_role>.
+
+      <fs_role>-task = gc_task_insert.
+      <fs_role>-data_key = gc_role_flcu00.
+
+    ENDIF.
+  ENDMETHOD.
+  METHOD map_tax_numbers.
+
+    DATA:
+      lv_taxtype1 TYPE dfkkbptaxnum-taxtype,
+      lv_taxtype3 TYPE dfkkbptaxnum-taxtype,
+      lv_value    TYPE string.
+
+    " NIF principal -
+    IF cs_cliente-nif IS NOT INITIAL.
+
+      IF cs_cliente-nif = gc_rfc_generico_mx.
+
+        lv_taxtype1 = 'MX1'.
+
+      ELSEIF cs_cliente-pais IS NOT INITIAL.
+
+        lv_taxtype1 = |{ cs_cliente-pais }1|.
+
+      ENDIF.
+
+      IF lv_taxtype1 IS NOT INITIAL.
+
+        lv_value = CONV string( cs_cliente-nif ).
+
+        map_tax_number(
+        EXPORTING
+          iv_extended = abap_true
+        CHANGING
+          cs_cliente  = cs_cliente
+          cv_taxtype  = lv_taxtype1
+          cv_value    = lv_value
+          cs_data     = cs_data ).
+      ENDIF.
+    ENDIF.
+
+    " NIF3
+    IF cs_cliente-nif3 IS NOT INITIAL AND cs_cliente-pais IS NOT INITIAL.
+
+      lv_taxtype3 = |{ cs_cliente-pais }3|.
+
+      lv_value = CONV string( cs_cliente-nif3 ).
+
+      map_tax_number(
+      EXPORTING
+        iv_extended = abap_false
+      CHANGING
+        cs_cliente  = cs_cliente
+        cv_taxtype  = lv_taxtype3
+        cv_value    = lv_value
+        cs_data     = cs_data ).
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD map_tax_number.
+
+    FIELD-SYMBOLS:
+    <fs_tax> TYPE bus_ei_bupa_taxnumber.
+
+    DATA:
+          lv_task TYPE c LENGTH 1 VALUE gc_task_insert.
+
+    " Para BP existente comprobar si ya existe el TAXTYPE
+    IF cs_cliente-partner IS NOT INITIAL.
+
+      SELECT SINGLE @abap_true
+      FROM dfkkbptaxnum
+      WHERE partner = @cs_cliente-partner
+      AND taxtype = @cv_taxtype
+      INTO @DATA(lv_exists).
+
+      IF sy-subrc = 0.
+        lv_task = gc_task_update.
+      ENDIF.
+
+    ENDIF.
+    " Añadir el número fiscal al payload CVI
+    APPEND INITIAL LINE TO cs_data-partner-central_data-taxnumber-taxnumbers ASSIGNING <fs_tax>.
+
+    <fs_tax>-task = lv_task.
+
+    " Categoría fiscal: MX1, DO1, DO3, etc.
+    <fs_tax>-data_key-taxtype = cv_taxtype.
+
+    " NIF principal -> TAXNUMXL
+    " NIF3 -> TAXNUMBER
+    IF iv_extended = abap_true.
+
+      <fs_tax>-data_key-taxnumxl = cv_value.
+    ELSE.
+
+      <fs_tax>-data_key-taxnumber = cv_value.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD map_customer_data.
+
+    CHECK cs_cliente-bukrs IS NOT INITIAL.
+
+    cs_data-customer-header-object_task = cs_context-customer_task.
+
+    IF cs_context-customer IS NOT INITIAL.
+      cs_data-customer-header-object_instance-kunnr = cs_context-customer.
+    ENDIF.
+
+    IF cs_context-customer_task = gc_task_insert.
+      cs_data-ensure_create-create_customer = abap_true.
+    ENDIF.
+
+    IF cs_cliente-vbund IS NOT INITIAL.
+      cs_data-customer-central_data-central-data-vbund = cs_cliente-vbund.
+      cs_data-customer-central_data-central-datax-vbund = abap_true.
+    ENDIF.
+
+    IF cs_cliente-brsch IS NOT INITIAL.
+      cs_data-customer-central_data-central-data-bran1 = cs_cliente-brsch.
+      cs_data-customer-central_data-central-datax-bran1 = abap_true.
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD map_bp_address.
+
+    DATA:
+      lv_langu     TYPE spras,
+      lv_langu_iso TYPE laiso.
+
+    FIELD-SYMBOLS:
+    <fs_address> TYPE bus_ei_bupa_address.
+
+    APPEND INITIAL LINE TO cs_data-partner-central_data-address-addresses ASSIGNING <fs_address>.
+
+    <fs_address>-task = cs_context-address_task.
+
+    <fs_address>-data_key-guid = cs_context-address_guid.
+    <fs_address>-data_key-operation = 'XXDFLT'.
+    <fs_address>-data-postal-data-city = cs_cliente-poblac1.
+    <fs_address>-data-postal-datax-city = abap_true.
+    <fs_address>-data-postal-data-street = cs_cliente-direc1.
+    <fs_address>-data-postal-datax-street = abap_true.
+    <fs_address>-data-postal-data-str_suppl1 = cs_cliente-direc2.
+    <fs_address>-data-postal-datax-str_suppl1 = abap_true.
+    <fs_address>-data-postal-data-house_no = cs_cliente-house_num1.
+    <fs_address>-data-postal-datax-house_no = abap_true.
+    <fs_address>-data-postal-data-district = cs_cliente-poblac2.
+    <fs_address>-data-postal-datax-district = abap_true.
+    <fs_address>-data-postal-data-postl_cod1 = cs_cliente-cod_post.
+    <fs_address>-data-postal-datax-postl_cod1 = abap_true.
+    <fs_address>-data-postal-data-country = cs_cliente-pais.
+    <fs_address>-data-postal-datax-country = abap_true.
+    <fs_address>-data-postal-data-region = cs_cliente-region.
+    <fs_address>-data-postal-datax-region = abap_true.
+    lv_langu = COND #(
+    WHEN cs_cliente-langu IS NOT INITIAL
+    THEN cs_cliente-langu
+    ELSE sy-langu ).
+
+    <fs_address>-data-postal-data-langu = lv_langu.
+    <fs_address>-data-postal-datax-langu = abap_true.
+
+    " ISO del idioma
+    CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
+      EXPORTING
+        input  = lv_langu
+      IMPORTING
+        output = lv_langu_iso.
+
+    IF lv_langu_iso IS NOT INITIAL.
+      <fs_address>-data-postal-data-languiso = lv_langu_iso.
+      <fs_address>-data-postal-datax-langu_iso =  abap_true.
+    ENDIF.
+
+    map_bp_communication(
+   CHANGING
+     cs_cliente = cs_cliente
+     cs_context = cs_context
+     cs_address = <fs_address> ).
+
+  ENDMETHOD.
+
+  METHOD map_bp_communication.
+
+    FIELD-SYMBOLS:
+      <fs_phone>  TYPE bus_ei_bupa_telephone,
+      <fs_mobile> TYPE bus_ei_bupa_telephone,
+      <fs_fax>    TYPE bus_ei_bupa_fax,
+      <fs_smtp>   TYPE bus_ei_bupa_smtp.
+
+    DATA:
+      lv_addrnumber        TYPE ad_addrnum,
+      lv_phone_task        TYPE c LENGTH 1,
+      lv_phone_old         TYPE adr2-tel_number,
+      lv_phone_consnumber  TYPE adr2-consnumber,
+      lv_mobile_task       TYPE c LENGTH 1,
+      lv_mobile_old        TYPE adr2-tel_number,
+      lv_mobile_consnumber TYPE adr2-consnumber,
+      lv_fax_task          TYPE c LENGTH 1,
+      lv_fax_old           TYPE adr3-fax_number,
+      lv_fax_consnumber    TYPE adr3-consnumber,
+      lv_smtp_task         TYPE c LENGTH 1,
+      lv_smtp_old          TYPE adr6-smtp_addr,
+      lv_smtp_consnumber   TYPE adr6-consnumber.
+
+    IF cs_cliente-partner IS NOT INITIAL AND cs_context-address_guid IS NOT INITIAL.
+
+      SELECT SINGLE addrnumber
+      FROM but020
+      WHERE partner      = @cs_cliente-partner
+      AND address_guid = @cs_context-address_guid
+      INTO @lv_addrnumber.
+
+    ENDIF.
+
+    IF cs_cliente-tel IS NOT INITIAL.
+
+      lv_phone_task = gc_task_insert.
+
+      " Buscar teléfono normal existente
+      IF lv_addrnumber IS NOT INITIAL.
+
+        SELECT SINGLE tel_number,
+        consnumber
+        FROM adr2
+        WHERE addrnumber = @lv_addrnumber
+        AND persnumber = @space
+        AND r3_user    = '1'
+        INTO ( @lv_phone_old,
+        @lv_phone_consnumber ).
+
+        IF sy-subrc = 0.
+          lv_phone_task = gc_task_update.
+        ENDIF.
+
+      ENDIF.
+
+      " Solo enviamos el nodo si hay creación o cambio real
+      IF lv_phone_task = gc_task_insert  OR lv_phone_old <> cs_cliente-tel.
+
+        APPEND INITIAL LINE TO cs_address-data-communication-phone-phone ASSIGNING <fs_phone>.
+
+        <fs_phone>-contact-task = lv_phone_task.
+        <fs_phone>-contact-data-telephone = cs_cliente-tel.
+        <fs_phone>-contact-datax-telephone = abap_true.
+
+        " Tipo teléfono normal
+        <fs_phone>-contact-data-r_3_user = '1'.
+        <fs_phone>-contact-datax-r_3_user = abap_true.
+
+        IF lv_phone_task = gc_task_update.
+
+          " Identificamos exactamente el ADR2 existente
+          <fs_phone>-contact-data-consnumber =  lv_phone_consnumber.
+          <fs_phone>-contact-datax-consnumber = abap_true.
+
+        ELSE.
+
+          " Nuevo teléfono principal
+          <fs_phone>-contact-data-std_no =  abap_true.
+          <fs_phone>-contact-datax-std_no =  abap_true.
+
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+    IF cs_cliente-mob_numb IS NOT INITIAL.
+
+      lv_mobile_task = gc_task_insert.
+
+      IF lv_addrnumber IS NOT INITIAL.
+
+        SELECT SINGLE tel_number,
+        consnumber
+        FROM adr2
+        WHERE addrnumber = @lv_addrnumber
+        AND persnumber = @space
+        AND r3_user    = '3'
+        INTO ( @lv_mobile_old,
+        @lv_mobile_consnumber ).
+
+        IF sy-subrc = 0.
+          lv_mobile_task = gc_task_update.
+        ENDIF.
+
+      ENDIF.
+
+      IF lv_mobile_task = gc_task_insert OR lv_mobile_old <> cs_cliente-mob_numb.
+
+        APPEND INITIAL LINE  TO cs_address-data-communication-phone-phone ASSIGNING <fs_mobile>.
+
+        <fs_mobile>-contact-task = lv_mobile_task.
+        <fs_mobile>-contact-data-telephone = cs_cliente-mob_numb.
+        " Indica que es teléfono móvil
+        <fs_mobile>-contact-data-r_3_user = '3'.
+        <fs_mobile>-contact-datax-telephone = abap_true.
+        <fs_mobile>-contact-datax-r_3_user = abap_true.
+
+        IF lv_mobile_task = gc_task_update.
+
+          <fs_mobile>-contact-data-consnumber = lv_mobile_consnumber.
+          <fs_mobile>-contact-datax-consnumber = abap_true.
+
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+    IF cs_cliente-fax IS NOT INITIAL.
+
+      lv_fax_task = gc_task_insert.
+
+      IF lv_addrnumber IS NOT INITIAL.
+
+        SELECT SINGLE fax_number,
+        consnumber
+        FROM adr3
+        WHERE addrnumber = @lv_addrnumber
+        AND persnumber = @space
+        AND flgdefault = @abap_true
+        INTO ( @lv_fax_old,
+        @lv_fax_consnumber ).
+
+        IF sy-subrc = 0.
+          lv_fax_task = gc_task_update.
+        ENDIF.
+      ENDIF.
+
+      IF lv_fax_task = gc_task_insert OR lv_fax_old <> cs_cliente-fax.
+
+        APPEND INITIAL LINE TO cs_address-data-communication-fax-fax ASSIGNING <fs_fax>.
+
+        <fs_fax>-contact-task = lv_fax_task.
+        <fs_fax>-contact-data-fax = cs_cliente-fax.
+        <fs_fax>-contact-datax-fax = abap_true.
+
+        IF lv_fax_task = gc_task_update.
+
+          <fs_fax>-contact-data-consnumber = lv_fax_consnumber.
+          <fs_fax>-contact-datax-consnumber = abap_true.
+
+        ELSE.
+
+          <fs_fax>-contact-data-std_no = abap_true.
+          <fs_fax>-contact-datax-std_no = abap_true.
+
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+    IF cs_cliente-mail IS NOT INITIAL.
+
+      lv_smtp_task = gc_task_insert.
+
+      IF lv_addrnumber IS NOT INITIAL.
+
+        SELECT SINGLE smtp_addr,
+        consnumber
+        FROM adr6
+        WHERE addrnumber = @lv_addrnumber
+        AND persnumber = @space
+        AND flgdefault = @abap_true
+        INTO ( @lv_smtp_old,
+        @lv_smtp_consnumber ).
+
+        IF sy-subrc = 0.
+          lv_smtp_task = gc_task_update.
+        ENDIF.
+
+      ENDIF.
+
+      IF lv_smtp_task = gc_task_insert OR lv_smtp_old <> cs_cliente-mail.
+
+        APPEND INITIAL LINE TO cs_address-data-communication-smtp-smtp ASSIGNING <fs_smtp>.
+
+        <fs_smtp>-contact-task = lv_smtp_task.
+        <fs_smtp>-contact-data-e_mail =  cs_cliente-mail.
+        <fs_smtp>-contact-datax-e_mail = abap_true.
+
+        IF lv_smtp_task = gc_task_update.
+
+          <fs_smtp>-contact-data-consnumber = lv_smtp_consnumber.
+          <fs_smtp>-contact-datax-consnumber = abap_true.
+
+        ELSE.
+          <fs_smtp>-contact-data-std_no = abap_true.
+          <fs_smtp>-contact-datax-std_no = abap_true.
+
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD map_company_data.
+
+    FIELD-SYMBOLS:
+    <fs_company> TYPE cmds_ei_company.
+
+    DATA:
+          lv_akont TYPE akont.
+
+    CHECK cs_cliente-bukrs IS NOT INITIAL.
+
+    cs_data-customer-company_data-current_state = abap_true.
+
+    APPEND INITIAL LINE TO cs_data-customer-company_data-company ASSIGNING <fs_company>.
+
+    <fs_company>-task = cs_context-company_task.
+
+    " Clave de sociedad
+    <fs_company>-data_key-bukrs = cs_cliente-bukrs.
+
+    lv_akont = cs_cliente-akont.
+
+    IF lv_akont IS NOT INITIAL.
+
+      lv_akont = |{ lv_akont ALPHA = IN }|.
+
+      <fs_company>-data-akont  = lv_akont.
+      <fs_company>-datax-akont = abap_true.
+
+    ENDIF.
+
+    <fs_company>-data-fdgrv = cs_cliente-fdgrv.
+    <fs_company>-datax-fdgrv = abap_true.
+    <fs_company>-data-altkn = cs_cliente-altkn.
+    <fs_company>-datax-altkn = abap_true.
+    <fs_company>-data-zterm = cs_cliente-zterm.
+    <fs_company>-datax-zterm = abap_true.
+
+    IF cs_context-company_task = gc_task_insert.
+
+      " Nueva sociedad: únicamente informamos bloqueo si viene solicitado.
+      IF cs_cliente-zahls IS NOT INITIAL.
+
+        <fs_company>-data-zahls = cs_cliente-zahls.
+        <fs_company>-datax-zahls = abap_true.
+      ENDIF.
+
+    ELSEIF cs_context-company_task = gc_task_update.
+
+      " Sociedad existente: recuperar bloqueo actual.
+      SELECT SINGLE zahls
+      FROM knb1
+      WHERE kunnr = @cs_context-customer
+      AND bukrs = @cs_cliente-bukrs
+      INTO @DATA(lv_zahls_actual).
+
+      IF sy-subrc = 0.
+
+        " Solo modificamos ZAHLS si la solicitud trae explícitamente un valor.
+        "
+        " Si viene vacío, NO enviamos DATAX y por tanto CL_MD_BP_MAINTAIN conserva el bloqueo existente.
+        IF cs_cliente-zahls IS NOT INITIAL AND cs_cliente-zahls <> lv_zahls_actual.
+
+          <fs_company>-data-zahls = cs_cliente-zahls.
+          <fs_company>-datax-zahls = abap_true.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+    <fs_company>-data-zwels = cs_cliente-zwels.
+    <fs_company>-datax-zwels = abap_true.
+    <fs_company>-data-busab = cs_cliente-busab.
+    <fs_company>-datax-busab = abap_true.
+
+    IF cs_cliente-zzncftc IS NOT INITIAL.
+
+      <fs_company>-data-zzncftc = cs_cliente-zzncftc.
+      <fs_company>-datax-zzncftc = abap_true.
+    ENDIF.
+
+    " Datos de reclamaciones
+    map_dunning_data(
+   CHANGING
+     cs_cliente = cs_cliente
+     cs_context = cs_context
+     cs_company = <fs_company> ).
+
+    " Retenciones
+    map_withholding_tax(
+   CHANGING
+     cs_cliente = cs_cliente
+     cs_context = cs_context
+     cs_company = <fs_company> ).
+
+  ENDMETHOD.
+
+  METHOD map_dunning_data.
+
+    FIELD-SYMBOLS:
+    <fs_dunning> TYPE cmds_ei_dunning.
+
+    DATA:
+      lv_task   TYPE c LENGTH 1,
+      lv_exists TYPE abap_bool.
+
+    IF cs_context-customer IS NOT INITIAL.
+
+      SELECT SINGLE @abap_true
+      FROM knb5
+      WHERE kunnr = @cs_context-customer
+      AND bukrs = @cs_cliente-bukrs
+      AND maber = @space
+      INTO @lv_exists.
+    ENDIF.
+
+    IF lv_exists = abap_false AND cs_cliente-mahna IS INITIAL
+   AND cs_cliente-mansp IS INITIAL AND cs_cliente-knrma IS INITIAL.
+
+      RETURN.
+    ENDIF.
+
+    lv_task = COND #(
+    WHEN lv_exists = abap_true
+    THEN gc_task_update
+    ELSE gc_task_insert ).
+
+    APPEND INITIAL LINE TO cs_company-dunning-dunning ASSIGNING <fs_dunning>.
+
+    <fs_dunning>-task = lv_task.
+    <fs_dunning>-data_key-maber = space.
+    <fs_dunning>-data-mahna = cs_cliente-mahna.
+    <fs_dunning>-datax-mahna = abap_true.
+    <fs_dunning>-data-mansp = cs_cliente-mansp.
+    <fs_dunning>-datax-mansp = abap_true.
+    <fs_dunning>-data-knrma = cs_cliente-knrma.
+    <fs_dunning>-datax-knrma = abap_true.
+
+  ENDMETHOD.
+
+  METHOD map_withholding_tax.
+
+    FIELD-SYMBOLS:
+    <fs_wtax> TYPE cmds_ei_wtax_type.
+
+    DATA:
+      lv_task   TYPE c LENGTH 1,
+      lv_exists TYPE abap_bool.
+
+    " Sin tipo de retención no tenemos clave de registro KNBW.
+    CHECK cs_cliente-witht IS NOT INITIAL.
+
+    " Comprobar si ya existe esta retención
+    IF cs_context-customer IS NOT INITIAL.
+
+      SELECT SINGLE @abap_true
+      FROM knbw
+      WHERE kunnr = @cs_context-customer
+      AND bukrs = @cs_cliente-bukrs
+      AND witht = @cs_cliente-witht
+      INTO @lv_exists.
+
+    ENDIF.
+
+    lv_task = COND #(
+    WHEN lv_exists = abap_true
+    THEN gc_task_update
+    ELSE gc_task_insert ).
+
+    APPEND INITIAL LINE TO cs_company-wtax_type-wtax_type ASSIGNING <fs_wtax>.
+
+    <fs_wtax>-task = lv_task.
+
+    " Tipo de retención
+    <fs_wtax>-data_key-witht = cs_cliente-witht.
+    <fs_wtax>-data-wt_withcd = cs_cliente-wt_withcd.
+    <fs_wtax>-datax-wt_withcd = abap_true.
+    <fs_wtax>-data-wt_agent = cs_cliente-wt_agent.
+    <fs_wtax>-datax-wt_agent = abap_true.
+    IF cs_cliente-wt_agtdf IS NOT INITIAL.
+
+      <fs_wtax>-data-wt_agtdf = cs_cliente-wt_agtdf.
+      <fs_wtax>-datax-wt_agtdf = abap_true.
+    ENDIF.
+    IF cs_cliente-wt_agtdt IS NOT INITIAL.
+
+      <fs_wtax>-data-wt_agtdt = cs_cliente-wt_agtdt.
+      <fs_wtax>-datax-wt_agtdt = abap_true.
+
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD call_api.
+
+    DATA:
+          lt_data TYPE cvis_ei_extern_t.
+
+    APPEND is_data TO lt_data.
+
+    cl_md_bp_maintain=>maintain(
+   EXPORTING
+     i_data   = lt_data
+   IMPORTING
+     e_return = rt_return ).
+
+  ENDMETHOD.
+
+  METHOD evaluate_return.
+
+    DATA:
+      lv_text       TYPE string,
+      lv_object_key TYPE string.
+
+    " Por defecto consideramos correcto el procesamiento.
+    " Solo E / A / X convierten el resultado en error.
+    rs_result-success = abap_true.
+
+    LOOP AT it_return ASSIGNING FIELD-SYMBOL(<fs_return>).
+      IF rs_result-partner IS INITIAL AND <fs_return>-object_key IS NOT INITIAL.
+
+        lv_object_key = CONV string( <fs_return>-object_key ).
+
+        CONDENSE lv_object_key NO-GAPS.
+        IF strlen( lv_object_key ) <= 10.
+
+          rs_result-partner = |{ lv_object_key ALPHA = IN }|.
+        ENDIF.
+
+      ENDIF.
+      LOOP AT <fs_return>-object_msg
+     ASSIGNING FIELD-SYMBOL(<fs_message>)
+     WHERE type = 'E'
+     OR type = 'A'
+     OR type = 'X'.
+
+        rs_result-success = abap_false.
+
+        CLEAR lv_text.
+
+        MESSAGE ID <fs_message>-id
+       TYPE 'S'
+       NUMBER <fs_message>-number
+       WITH <fs_message>-message_v1
+       <fs_message>-message_v2
+       <fs_message>-message_v3
+       <fs_message>-message_v4
+       INTO lv_text.
+
+        IF rs_result-message IS INITIAL.
+
+          rs_result-message = lv_text.
+        ELSE.
+
+          rs_result-message = |{ rs_result-message } / { lv_text }|.
+        ENDIF.
+      ENDLOOP.
+    ENDLOOP.
+
+    IF rs_result-success = abap_false AND rs_result-message IS INITIAL.
+
+      rs_result-message = 'Error al mantener el Business Partner/Customer'.
+    ENDIF.
+
+  ENDMETHOD.
+ENDCLASS.
