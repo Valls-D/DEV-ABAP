@@ -1,0 +1,1724 @@
+***********************************************************************
+*  Unterroutinen SD/WS-Lieferabwicklung Warenbewegungen alphabetisch: *
+*  FORMS for delivery goods movements in alphabetical order           *
+*  ------------------------------------------------------------------ *
+*  Buchstabe H:                                                       *
+*  Letter H:                                                          *
+*        PERFORM HU_GET_TABLES.                                       *
+*        PERFORM HU_COPY_SERNR_TO_LIPS.                               *
+*        PERFORM HU_CREATE_LIVE.                                      *
+*        PERFORM HU_SET_MEMORY.                                       *
+*        PERFORM HU_FILL_HU_IMSEG.                                    *
+*        PERFORM HU_FILL_BEFI_HU_IMSEG.                               *
+*        PERFORM HU_FILL_HUMSEG_HU.                                   *
+*        PERFORM HU_UPDATE_FROM_HUMSEG.                               *
+*        PERFORM HU_COMPLETENESS_CHECK.                               *
+*                                                                     *
+***********************************************************************
+*&---------------------------------------------------------------------*
+*&      Form  HU_GET_TABLES
+*&---------------------------------------------------------------------*
+*       Fetch tables VEPO and VEKP
+*----------------------------------------------------------------------*
+FORM hu_get_tables.
+  DATA: lf_no_db_select TYPE xfeld.                         "HP 215458
+  DATA: ls_object   TYPE vsep_s_objkey.
+  DATA: lf_unique TYPE xfeld.
+  DATA: lf_process TYPE /spe/gen_process.                   "n_1537900
+  DATA: lf_more_hus TYPE xfeld.                             "HP_435519
+  DATA: ls_packing TYPE vse_s_v51h,                         "SP_549474
+        ls_likp    TYPE likpvb.
+
+*...XAN HU_lean_status_update for non-unique HU numbering setting
+  DATA: lf_spe_lean_hustat TYPE tvshp-spe_lean_hustat.
+
+*... has there been packed anything before ?
+  CHECK NOT xvbuk-pkstk CA ' A'.
+  CHECK NOT v50agl-huactive IS INITIAL OR                     "HUM
+        NOT v50agl-spe_auto_gr IS INITIAL.  "SPM Auto GR
+
+  CALL FUNCTION 'HU_TVSHP_SELECT'
+    IMPORTING
+      ef_exidv_unique    = lf_unique                      "v_XAN-SPM
+      ef_spe_lean_hustat = lf_spe_lean_hustat.
+
+*...XAN HU_lean_status_update for non-unique HU numbering setting
+  IF NOT lf_spe_lean_hustat IS INITIAL.
+  ELSE.                                                       "^_XAN-SPM
+    CHECK NOT lf_unique IS INITIAL.
+  ENDIF.                                                        "XAN-SPM
+
+*... set object for inbound or outbound delivery and returns    "XAN-SPM
+  IF likp-vbtyp EQ if_sd_doc_category=>delivery.
+    ls_object-object = gc_pacobj-obdlvry.
+  ENDIF.
+  IF cl_sd_doc_category_util=>is_delivery_incoming( iv_vbtyp = likp-vbtyp ) OR likp-vbtyp EQ if_sd_doc_category=>returns_delivery_for_order.
+    ls_object-object = gc_pacobj-ibdlvry.
+  ENDIF.
+
+* SPM XAN - PARTIAL GOODS RECEIPT AND OTHERS                  "v_XAN-SPM
+  IF /spe/cl_ctrl=>is_ewm( i_lgnum = likp-lgnum ) IS INITIAL. "v_n_1732632
+    IF likp-vbtyp = if_sd_doc_category=>delivery_shipping_notif AND likpd-mdiff_buch = 'X'
+    AND likpd-mdiff_storno = 'X'.
+      ls_object-object = '12'.
+    ENDIF.
+  ENDIF.                                                      "^_n_1732632
+
+* SPM XAN - PARTIAL GOODS RECEIPT AND OTHERS
+  IF likp-vbtyp = if_sd_doc_category=>returns_delivery_for_order AND likpd-mdiff_buch = 'X'
+   AND likpd-mdiff_storno = 'X'.
+    CALL FUNCTION '/SPE/RET_HU_DATA_GET'                    "v_n_1537900
+      IMPORTING
+        ef_process_indicator = lf_process.
+    IF lf_process NE 'QDP'.
+      ls_object-object = '12'.
+    ELSE.                                                   "n_2190750
+      EXIT.                                                 "n_2190750
+    ENDIF.                                                  "^_n_1537900
+  ENDIF.                                                    "^_XAN-SPM
+
+  ls_object-objkey = likp-vbeln.
+  IF likpd-updkz = 'I'.
+    lf_no_db_select = charx.
+  ELSE.
+    CLEAR lf_no_db_select.
+  ENDIF.
+*... now we fetch tables VEPO and VEKP
+*... bei Umbuchung kann es sein, daß nur ein Teil der HU an der LF hängt
+  IF tvlk-aufer = 'H'.                                      "HP_435519
+    lf_more_hus = 'X'.                                      "HP_435519
+  ENDIF.                                                    "HP_435519
+
+
+*... because of errors that occured only when posting was performed
+*....directly without displaying the packing screen before, packing
+*....is now called always.
+  IF cl_sd_doc_category_util=>is_delivery_incoming( iv_vbtyp = likp-vbtyp ) OR likp-vbtyp EQ if_sd_doc_category=>returns_delivery_for_order. "SP_549474
+    ls_packing-object = '03'.
+  ELSE.
+    ls_packing-object = '01'.
+  ENDIF.
+
+* MDIFF / INBOUND                                             "v_XAN-SPM
+  IF /spe/cl_ctrl=>is_ewm( i_lgnum = likp-lgnum ) IS INITIAL. "v_n_1732632
+    IF likp-vbtyp = if_sd_doc_category=>delivery_shipping_notif AND likpd-mdiff_buch = 'X'
+    AND likpd-mdiff_storno = 'X'.
+      ls_packing-object = '12'.
+    ENDIF.
+  ENDIF.                                                      "^_n_1732632
+
+* MDIFF / RETURNS
+  IF likp-vbtyp = if_sd_doc_category=>returns_delivery_for_order AND likpd-mdiff_buch = 'X'
+  AND likpd-mdiff_storno = 'X' AND lf_process NE 'QDP'.     "n_1537900
+    ls_packing-object = '12'.
+  ENDIF.                                                      "^_XAN-SPM
+
+  ls_likp = likp.
+  ls_packing-display = t180-trtyp.
+  ls_packing-init = 'X'.
+  ls_packing-conf_dec = v50agl-confirm_central.
+  ls_packing-tvlk_aufer = tvlk-aufer.
+  ls_packing-tvlk_pmpos_gen = tvlk-pm_item_gen.
+  CALL FUNCTION 'HU_PACKING_DELIVERY'
+    EXPORTING
+      is_delivery = ls_packing
+      is_likp     = ls_likp
+      it_xlips    = xlips[]
+      it_xvbuk    = xvbuk[]
+      it_xvbup    = xvbup[]
+      it_xvbpa    = xvbpa[]
+    CHANGING
+      ct_xvbfa    = xpackvbfa[]
+      ct_yvbfa    = ypackvbfa[]
+      ct_xvbapf   = xvbapf[].
+
+  CALL FUNCTION 'HU_GET_HUS'
+    EXPORTING
+      if_object       = ls_object-object
+      if_no_db_select = lf_no_db_select
+      if_more_hus     = lf_more_hus                         "HP_435519
+      is_objects      = ls_object
+      if_lock_hus     = charx
+    IMPORTING
+      et_header       = gt_vekp
+      et_items        = gt_vepo
+    EXCEPTIONS
+      OTHERS          = 0.
+
+  IF sy-subrc <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+ENDFORM.                               " HU_GET_TABLES
+
+
+*&---------------------------------------------------------------------*
+*&      Form  HU_CREATE_LIVE
+*&---------------------------------------------------------------------*
+*       Create link between LIPS and VEPO and move it into table GT_LIVE
+*----------------------------------------------------------------------*
+FORM hu_create_live USING if_error_flag.
+
+  DATA: lf_idxfr    TYPE sy-tabix,
+        lf_idxfr_lt TYPE sy-tabix.
+  DATA: lf_idxto LIKE sy-tfill.
+* Don't create GT_LIVE
+  DATA: lf_no_cr_live TYPE xfeld.                           "RG 895404
+  DATA: lf_unique TYPE xfeld.                               "HP_355955
+* Teil-WE
+  DATA: lt_objects  TYPE lepgr_objects,
+        ls_objects  LIKE LINE OF lt_objects,
+        ls_header51 TYPE header51,                          "n_1791800
+        ls_vekp     LIKE LINE OF gt_vekp.
+  DATA: lt_vepo  TYPE vsep_t_vepo,                          "n_v_809671
+        lt_venum TYPE hum_venum_t,
+        ls_venum TYPE venum,
+        ls_vepo  LIKE vepovb.                               "n_^_809671
+  FIELD-SYMBOLS:   <ls_objects> LIKE LINE OF lt_objects.
+
+  DATA: lt_qchg TYPE /spe/inb_obj_quan_chg_t,               "v_XAN-SPM
+        ls_qchg LIKE LINE OF lt_qchg.                       "^_XAN-SPM
+
+  FIELD-SYMBOLS:  <ls_qchg> LIKE LINE OF lt_qchg.               "XAN-SPM
+
+*...XAN HU_lean_status_update for non-unique HU numbering setting
+  DATA: lf_spe_lean_hustat TYPE tvshp-spe_lean_hustat.
+
+*... has there been packed anything before ?
+  CHECK NOT xvbuk-pkstk CA ' A'.
+
+*... No HU update for TPOP
+  IF xlikp-spe_le_scenario = gc_le_scenario-tpop.           "v_n_1791800
+* Publish TPOP-scenario in order to deactive certain HU consistency checks
+* in FM HU_CONSISTENZ_CHECK
+    CALL FUNCTION 'V51P_GET_HEADER_DATA'
+      IMPORTING
+        es_header51 = ls_header51.
+    ls_header51-le_scenario = gc_le_scenario-tpop.
+    CALL FUNCTION 'V51P_FILL_GT'
+      EXPORTING
+        is_header51 = ls_header51
+      EXCEPTIONS
+        hu_locked   = 1
+        no_hu_found = 2
+        fatal_error = 3
+        OTHERS      = 4.
+  ENDIF.                                                    "^_n_1791800
+  CHECK xlikp-spe_le_scenario NE gc_le_scenario-tpop.       "n_1743643
+
+* check if HUM is active                                    "n_1088020
+  CALL FUNCTION 'HU_TVSHP_SELECT'
+    IMPORTING
+      ef_exidv_unique    = lf_unique                      "v_XAN-SPM
+      ef_spe_lean_hustat = lf_spe_lean_hustat.
+
+*...XAN HU_lean_status_update for non-unique HU numbering setting
+  IF NOT lf_spe_lean_hustat IS INITIAL.
+  ELSE.                                                       "^_XAN-SPM
+    CHECK NOT lf_unique IS INITIAL.
+  ENDIF.                                                        "XAN-SPM
+
+  CALL FUNCTION 'LE_GET_PGR_OBJECTS'
+    EXPORTING
+      i_objtyp    = '01'  "Nur HUs holen
+    IMPORTING                                                 "v_XAN-SPM
+      et_quan_chg = lt_qchg[]                                 "^_XAN-SPM
+    TABLES
+      et_objects  = lt_objects.
+
+* maybe should be changed like the following deactivated code     "v_XAN
+**   C5024641 25.09.2002 Teil-WE Ext. von Daniela
+*    SORT GT_VEPO BY VBELN POSNR.
+*    SORT GT_VEKP BY VENUM.                                       "^_XAN
+
+* IF lt_objects[] IS INITIAL.                                 "v_XAN-SPM
+  IF   lt_objects[] IS INITIAL OR                           "n_1246404
+     ( NOT v50agl-confirm_central IS INITIAL AND
+       xlikp-mdiff_buch <> 'X' ).                            "^_XAN-SPM Space and N
+
+    DESCRIBE TABLE gt_vepo LINES lf_idxto.
+    CHECK lf_idxto GT 0.
+    SORT gt_vepo BY vbeln posnr.
+    LOOP AT xlips WHERE NOT updkz EQ chard.
+      CHECK NOT xlips-pckpf = 'B'.                          "HP_320729
+      IF NOT likpd-kzebu IS INITIAL.                        "v_n_702287
+        CHECK xlips-ebumg > 0.
+      ENDIF.                                                "^_n_702287
+      gt_live-vbeln = xlips-vbeln.
+      gt_live-posnr = xlips-posnr.
+
+      READ TABLE gt_vepo WITH KEY vbeln = xlips-vbeln
+                                  posnr = xlips-posnr
+                                                    INTO gs_vepo
+                                                    BINARY SEARCH.
+      CHECK sy-subrc EQ 0.
+      lf_idxfr = sy-tabix.
+* Exclude Cross-delivery HU's from Goods Issue !
+      READ TABLE gt_vekp INTO gs_vekp
+                         WITH KEY venum = gs_vepo-venum
+                         BINARY SEARCH.
+      IF sy-subrc = 0                         AND
+         gs_vekp-vpobj <> gc_pacobj-x_obdlvry AND
+         gs_vekp-vpobj <> gc_pacobj-x_ibdlvry.
+        gt_live-venum = gs_vepo-venum.
+        gt_live-vepos = gs_vepo-vepos.
+        gt_live-vemng = gs_vepo-vemng.
+        gt_live-vemeh = gs_vepo-vemeh.
+        gt_live-sobkz = gs_vepo-sobkz.
+        gt_live-sonum = gs_vepo-sonum.
+        APPEND gt_live.
+      ENDIF.
+
+      lf_idxfr = lf_idxfr + 1.
+      LOOP AT gt_vepo FROM lf_idxfr TO lf_idxto INTO gs_vepo.
+        IF gs_vepo-vbeln <> xlips-vbeln OR
+           gs_vepo-posnr <> xlips-posnr.
+          EXIT.
+        ENDIF.
+* Exclude Cross-delivery HU's from Goods Issue !
+        READ TABLE gt_vekp INTO gs_vekp
+                           WITH KEY venum = gs_vepo-venum
+                           BINARY SEARCH.
+        IF sy-subrc = 0                         AND
+           gs_vekp-vpobj <> gc_pacobj-x_obdlvry AND
+           gs_vekp-vpobj <> gc_pacobj-x_ibdlvry.
+          gt_live-venum = gs_vepo-venum.
+          gt_live-vepos = gs_vepo-vepos.
+          gt_live-vemng = gs_vepo-vemng.
+          gt_live-vemeh = gs_vepo-vemeh.
+          gt_live-sobkz = gs_vepo-sobkz.
+          gt_live-sonum = gs_vepo-sonum.
+          APPEND gt_live.
+        ENDIF.
+
+      ENDLOOP.
+    ENDLOOP.
+    SORT gt_live BY vbeln posnr venum vepos.                "n_991579
+  ELSE.
+*...Partial GR with HU ............................................*
+*... Lines deleted                                             "n_809671
+    LOOP AT lt_objects ASSIGNING <ls_objects> WHERE objtyp = '01'.
+      READ TABLE gt_vekp INTO ls_vekp
+                         WITH KEY venum = <ls_objects>-objkey.
+
+* maybe should be changed like the following deactivated code     "v_XAN
+**                       WITH KEY VENUM = <LS_OBJECTS>-OBJKEY.
+*   C5024641 25.09.2002 Teil-WE Ext. von Daniela
+*                        WITH KEY VENUM = <LS_OBJECTS>-OBJKEY
+*                        binary search.                           "^_XAN
+
+      IF sy-subrc EQ char0 AND ls_vekp-hu_locked NE charx.
+*       MESSAGE E205(VLA) WITH ls_vekp-venum.
+*       Die Teil-WE zu buchende HU muss gesperrt werden
+        MOVE-CORRESPONDING xlips TO wat.
+        wat-msgno = '205'.
+        wat-msgty = e.
+        wat-msgid = 'VLA'.
+        wat-msgv1 = ls_vekp-venum.
+        wat-msgv2 = xlips-vbeln.
+        wat-msgv3 = xlips-posnr.
+        APPEND wat.
+        if_error_flag = charx.
+      ENDIF.
+      ls_venum = <ls_objects>-objkey.                       "n_809671
+      APPEND ls_venum TO lt_venum.
+    ENDLOOP.
+
+*   Note: 895404 RG 07.11.2005 QDIFF Don't generate the GT_LIVE
+*   entries when this is a partial GR/QDIFF process but no
+*   objects are give for the posting.
+    CLEAR lf_no_cr_live.
+    IF lt_objects[] IS INITIAL "Process without HUs
+    AND xlikp-vbtyp = if_sd_doc_category=>delivery_shipping_notif "Inbound delivery
+    AND xlikp-kzebu = 'X' "Partial GR way for the posing
+    AND xlikp-mdiff_buch = 'X'. "Quantity difference process
+      lf_no_cr_live = 'X'.
+    ENDIF.
+
+*   Note: 895404 Don't generate GT_LIVE when ...
+    IF lf_no_cr_live = space.                               "895404
+
+* Build the packing hierarchy directly from LT_OBJECTS      "n_v_1119855
+* GT_VEKP and GT_VEPO that only contain delivery HUs:
+      LOOP AT lt_venum INTO ls_venum.
+        READ TABLE gt_vepo TRANSPORTING NO FIELDS
+                           WITH KEY venum = ls_venum
+                           BINARY SEARCH.
+        CHECK sy-subrc IS INITIAL.
+        LOOP AT gt_vepo FROM sy-tabix INTO gs_vepo WHERE velin = '3'.
+          IF gs_vepo-venum NE ls_venum. EXIT. ENDIF.
+          ls_vepo-venum = gs_vepo-unvel.
+          APPEND ls_vepo-venum TO lt_venum.
+        ENDLOOP.
+      ENDLOOP.
+      SORT lt_venum.                                        "n_^_1119855
+
+      SORT gt_vepo BY vbeln posnr.
+      LOOP AT xlips WHERE updkz <> gc_updfl-delete
+                    AND   pckpf <> charb.
+        IF NOT likpd-kzebu IS INITIAL AND                   "v_n_1066685
+               xlips-hupos IS INITIAL.                      "n_1161823
+*         Posting parts of HUs only allowed without HUM
+          CHECK xlips-ebumg > 0.
+        ENDIF.                                              "^_n_1066685
+        gt_live-vbeln = xlips-vbeln.
+        gt_live-posnr = xlips-posnr.
+
+        LOOP AT gt_vepo INTO gs_vepo WHERE vbeln = xlips-vbeln AND
+                                           posnr = xlips-posnr.
+          READ TABLE lt_venum TRANSPORTING NO FIELDS        "n_1119855
+                              WITH KEY venum = gs_vepo-venum
+                              BINARY SEARCH.
+          CHECK sy-subrc = char0.
+*   Exclude Cross-delivery HU's from Goods Issue !
+          READ TABLE gt_vekp INTO gs_vekp
+                             WITH KEY venum = gs_vepo-venum
+                             BINARY SEARCH.
+          CHECK sy-subrc = 0
+          AND   gs_vekp-vpobj <> gc_pacobj-x_obdlvry
+          AND   gs_vekp-vpobj <> gc_pacobj-x_ibdlvry.
+
+          gt_live-venum = gs_vepo-venum.
+          gt_live-vepos = gs_vepo-vepos.
+          gt_live-vemng = gs_vepo-vemng.
+          gt_live-vemeh = gs_vepo-vemeh.
+*  .SPM Quantity deviations                                     "v_XAN-SPM
+          READ TABLE lt_qchg ASSIGNING <ls_qchg>
+                 WITH KEY objtyp = '01'
+                          objkey = gs_vekp-venum
+                          vbeln  = xlips-vbeln
+                          posnr  = xlips-posnr
+                          BINARY SEARCH.
+          IF sy-subrc = 0.
+            gt_live-spe_corr_quan  =  <ls_qchg>-corr_quan.
+            gt_live-spe_chg_dir    = <ls_qchg>-chg_dir.
+          ENDIF.                                            "^_XAN-SPM
+          APPEND gt_live.
+        ENDLOOP.
+      ENDLOOP.
+
+    ENDIF.  "Note 895404
+
+    IF gt_live[] IS INITIAL.
+      lt_vepo[] = gt_vepo[].
+      SORT lt_vepo BY venum unvel.
+      LOOP AT lt_objects INTO ls_objects WHERE objtyp = '01'.
+        READ TABLE lt_vepo WITH KEY venum = ls_objects-objkey
+                           BINARY SEARCH
+                           TRANSPORTING NO FIELDS.
+        CHECK sy-subrc IS INITIAL.
+        lf_idxfr = sy-tabix.
+        LOOP AT lt_vepo INTO gs_vepo FROM lf_idxfr.
+          IF gs_vepo-venum <> ls_objects-objkey.
+            EXIT.
+          ENDIF.
+          CHECK gs_vepo-unvel IS NOT INITIAL.
+          READ TABLE lt_vepo WITH KEY venum = gs_vepo-unvel
+                             BINARY SEARCH
+                             TRANSPORTING NO FIELDS.
+          CHECK sy-subrc IS INITIAL.
+          lf_idxfr_lt = sy-tabix.
+* Exclude Cross-delivery HU's from Goods Issue !
+          READ TABLE gt_vekp INTO gs_vekp
+                             WITH KEY venum = gs_vepo-unvel
+                             BINARY SEARCH.
+          CHECK sy-subrc = 0
+          AND   gs_vekp-vpobj <> gc_pacobj-x_obdlvry
+          AND   gs_vekp-vpobj <> gc_pacobj-x_ibdlvry.
+          LOOP AT lt_vepo INTO ls_vepo FROM lf_idxfr_lt.
+            IF ls_vepo-venum <> gs_vepo-unvel.
+              EXIT.
+            ENDIF.
+            gt_live-vbeln = ls_vepo-vbeln.
+            gt_live-posnr = ls_vepo-posnr.
+            gt_live-venum = ls_vepo-venum.
+            gt_live-vepos = ls_vepo-vepos.
+            gt_live-vemng = ls_vepo-vemng.
+            gt_live-vemeh = ls_vepo-vemeh.
+*.SPM Quantity deviations                                     "v_XAN-SPM
+            READ TABLE lt_qchg ASSIGNING <ls_qchg>
+                   WITH KEY objtyp = '01'
+                            objkey = gs_vekp-venum
+                            vbeln  = xlips-vbeln
+                            posnr  = xlips-posnr
+                            BINARY SEARCH.
+            IF sy-subrc = 0.
+              gt_live-spe_corr_quan  =  <ls_qchg>-corr_quan.
+              gt_live-spe_chg_dir    = <ls_qchg>-chg_dir.
+            ENDIF.                                            "^_XAN-SPM
+
+*           gt_live-exidv_ob = gs_vekp-exidv.
+
+            APPEND gt_live.
+          ENDLOOP.
+        ENDLOOP.
+      ENDLOOP.
+    ENDIF.
+    SORT gt_live BY vbeln posnr venum vepos.                "n_991579
+  ENDIF.
+
+ENDFORM.                               " HU_CREATE_LIVE
+
+
+"{ Begin ENHO AUTO_BOR_FV50WF0H IS-A-GR AM_GR }
+*&---------------------------------------------------------------------*
+*&      Form  GET_COMMON_TAB
+*&---------------------------------------------------------------------*
+* C5024641 MDIFF 26.04.2002 Eine Globale InterneTabelle zurücklesen.
+* ( Vorsich! Die Tabellen Type Soll kompatible Sein ! )
+* Tabellen zb: XIMSEG, XLIPS, XVBFA, XLIKP, XVBUK, XVBUP, XMSEG
+*----------------------------------------------------------------------*
+FORM get_common_tab
+        USING i_iname TYPE char30
+              et_tab  TYPE STANDARD TABLE.
+  DATA:
+    l_error TYPE xfeld VALUE space,
+    l_iname LIKE i_iname,
+    lr_itab TYPE REF TO data.
+
+  FIELD-SYMBOLS:
+    <ls_itab> TYPE any,
+    <lt_itab> TYPE STANDARD TABLE,
+    <ls_any>  TYPE any.
+
+  CONCATENATE i_iname '[]' INTO l_iname.
+* Kopfzeile wird referiert
+  ASSIGN (i_iname) TO <ls_itab>.
+  CHECK sy-subrc = 0.
+* Internetabelle wird referiert
+  ASSIGN (l_iname) TO <lt_itab>.
+  CHECK sy-subrc = 0.
+  REFRESH et_tab.
+* Alle Zeile Auslesen
+  LOOP AT <lt_itab> ASSIGNING <ls_itab>.
+    GET REFERENCE OF <ls_itab> INTO lr_itab.
+*   Pointer lr_itab in pointer <ls_any> füllen. (!Keine Feldkonversion!
+    ASSIGN lr_itab->* TO <ls_any>.
+    IF sy-subrc <> 0.
+      l_error = 'X'. EXIT.
+    ENDIF.
+    APPEND <ls_any> TO et_tab.
+  ENDLOOP.
+  IF l_error IS INITIAL.
+    CLEAR sy-subrc.
+  ENDIF.
+ENDFORM.
+"{ End ENHO AUTO_BOR_FV50WF0H IS-A-GR AM_GR }
+
+ENHANCEMENT-POINT fv50wf0h_02 SPOTS es_sapfv50w STATIC.
+
+*&---------------------------------------------------------------------*
+*&      Form  HU_SET_MEMORY
+*&---------------------------------------------------------------------*
+*       Link from HU <-> IMSEG will be raised to memory
+*----------------------------------------------------------------------*
+FORM hu_set_memory.
+  DATA: lf_imndx LIKE sy-tabix.
+  DATA: ls_lemovhead_tra TYPE lemovhead_tra.                    "XAN-SPM
+
+  CHECK NOT xvbuk-pkstk CA ' A'.
+
+  IF gt_hu_imseg[] IS INITIAL.
+    IF NOT gt_humseg_hu[] IS INITIAL.
+      CALL FUNCTION 'V51P_GLOBAL_TABLE_SAVE'.
+    ENDIF.                                                    "v_XAN-SPM
+*   EXIT.
+    IF likpd-kzebu IS INITIAL.
+      EXIT.
+    ENDIF.                                                    "^_XAN-SPM
+  ENDIF.
+  gt_humseg[] = gt_hu_imseg[].
+
+
+  CALL FUNCTION 'LE_MOVEMENT_DATA_TRANSFER_GET'               "v_XAN-SPM
+    IMPORTING
+      es_lemovhead_tra = ls_lemovhead_tra.              "^_XAN-SPM
+
+
+  CALL FUNCTION 'HU_SET_MEMORY'
+    EXPORTING
+      if_cancel            = likpd-mdiff_storno                 "XAN-SPM
+      if_partial_gm        = likpd-kzebu
+      it_hu_imseg          = gt_humseg
+      if_mdiff_buch        = likpd-mdiff_buch                 "v_XAN-SPM
+      if_process_indicator = ls_lemovhead_tra-spe_process_indicator "^_
+    EXCEPTIONS
+      memory_not_empty     = 1
+      OTHERS               = 2.
+  IF sy-subrc <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+ENDFORM.                               " HU_SET_MEMORY
+*&---------------------------------------------------------------------*
+*&      Form  HU_COPY_SERNR_TO_LIPS
+*&---------------------------------------------------------------------*
+*       Copy objectlist for serialnumber tracking in HU scenario       *
+*----------------------------------------------------------------------*
+*      -->IF_XANZSN     number of serialnumbers
+*----------------------------------------------------------------------*
+FORM hu_copy_sernr_to_lips USING if_xanzsn.
+
+*  CHECK NOT XLIPS-HUPOS IS INITIAL.
+  CHECK NOT v50agl-huactive IS INITIAL.                     "HUM
+
+  DATA: lf_vorgang      LIKE tj01-vrgng,                    "n_599939
+        lf_ident        LIKE sy-uzeit,
+        lf_tfill        LIKE sy-tfill,
+        lf_allowed(1)   TYPE c,
+        lf_status_error TYPE c.
+  DATA: BEGIN OF lt_xmsg OCCURS 10.    " messages
+          INCLUDE STRUCTURE mesg.
+  DATA: END OF lt_xmsg.
+  DATA: ls_rserob TYPE rserob,                              "n_492902
+        ls_lips   TYPE lips.                                "n_933408
+
+  DATA: cp_sn_condense_hus TYPE xfeld,                      "v_n_991579
+        sf_hu_dummy        TYPE venum VALUE 'DUMMYDUMMY',
+        lt_hus             TYPE ehumpos_t,
+        ls_hus             TYPE ehumpos,
+        up_count_hu_items  TYPE sytfill VALUE 0,
+        up_count_dl_items  TYPE sytfill VALUE 0,
+        up_dl_quantity     TYPE lgmng,
+        lf_old_logic       TYPE xfeld VALUE space.          "^_n_991579
+
+* lines from note 2439425 deleted by note 2505315             "n_2505315
+* during goods movement, serial numbers attached to HUs will  "n_2505315
+* always be transferred to the delivery; so no profile check  "n_2505315
+* needed                                                      "n_2505315
+
+  MOVE-CORRESPONDING xlips TO ls_lips.                      "n_933408
+  PERFORM sn_status_operation_determine                     "v_n_599939
+                                USING    likp-vbtyp
+                                         tvlk-aufer
+                                         ls_lips            "n_933408
+                                         charx
+                                CHANGING lf_vorgang.        "^_n_599939
+
+  IF xlips-anzsn GT 0.
+*... When number of serialnumbers is greater 0 the objectlist has
+*    to be deleted - but only in HUM scenario
+    READ TABLE gt_live WITH KEY vbeln = xlips-vbeln
+                                posnr = xlips-posnr.
+    IF sy-subrc = 0.
+      ls_rserob-taser = 'SER06'.                            "v_n_492902
+      ls_rserob-venum = gt_live-venum.
+      ls_rserob-vepos = gt_live-vepos.
+*... Suppress deleting and rehanging objectlist if HU is not serialized
+      CALL FUNCTION 'GET_SERNOS_OF_DOCUMENT'
+        EXPORTING
+          key_data            = ls_rserob
+        EXCEPTIONS
+          key_parameter_error = 1
+          no_supported_access = 2
+          no_data_found       = 3
+          OTHERS              = 4.
+      CHECK sy-subrc IS INITIAL.                            "^_n_492902
+      CALL FUNCTION 'DELETE_SERNR_LS'
+        EXPORTING
+          j_vorgang          = lf_vorgang                   "n_599939
+          vbeln              = xlips-vbeln
+          posnr              = xlips-posnr
+        IMPORTING
+          status_not_allowed = lf_status_error.
+*... One or more assigned serial numbers cannot be deleted ?!
+      IF NOT lf_status_error IS INITIAL.
+        MESSAGE a436(vl) WITH xlips-posnr.
+      ELSE.
+        CLEAR lips-anzsn.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+  MOVE-CORRESPONDING xlips TO ls_lips.                      "n_933408
+  PERFORM sn_status_operation_determine                     "v_n_599939
+                                USING    likp-vbtyp
+                                         tvlk-aufer
+                                         ls_lips            "n_933408
+                                         space
+                                CHANGING lf_vorgang.        "^_n_599939
+
+  "{ Begin ENHO AUTO_BOR_FV50WF0H IS-A-GR AM_GR }
+* Inbound delivery will always be set to PMSF                "v_n_597405
+  IF likp-vbtyp EQ if_sd_doc_category=>delivery_shipping_notif OR
+     likp-vbtyp EQ if_sd_doc_category=>rough_goods_receipt_is_retail AND
+    "SDIMP ZJK I306463 ca vbtyp_mmli and
+     tvlk-aufer EQ charb      AND NOT
+     lips-vgbel IS INITIAL    AND NOT
+     lips-vgpos IS INITIAL.
+    lf_vorgang = 'PMSF'.
+  ENDIF.
+  "{ End ENHO AUTO_BOR_FV50WF0H IS-A-GR AM_GR }
+
+ENHANCEMENT-POINT fv50wf0h_03 SPOTS es_sapfv50w.
+
+  DESCRIBE TABLE gt_live LINES up_count_hu_items.           "v_n_991579
+  DESCRIBE TABLE xlips   LINES up_count_dl_items.
+  up_dl_quantity = xlips-lgmng.
+
+*...New dummy HU logic for performance reasons makes sense for a plenty
+*   of serialized HUs per delivery item. With the help of the total
+*   number of HU items, the number of items per delivery and the
+*   quantity of the actual delivery item it should be possible to decide
+*   whether it makes sense or not to use this new logic. Depending on
+*   this decision the parameter CP_SN_CONDENSE_HUS can be set or not in
+*   the following user exit.
+
+  PERFORM user_exit_condense_hus
+          IN PROGRAM sapmv50a IF FOUND
+                     USING    up_count_hu_items
+                              up_count_dl_items
+                              up_dl_quantity
+                     CHANGING cp_sn_condense_hus.
+
+  IF NOT cp_sn_condense_hus IS INITIAL.
+*...New Dummy HU logic
+
+    CLEAR ls_hus. REFRESH lt_hus.
+*...Prepare HU table related to this delivery item
+    LOOP AT gt_live WHERE vbeln EQ xlips-vbeln AND
+                          posnr EQ xlips-posnr.
+      MOVE-CORRESPONDING gt_live TO ls_hus.
+      APPEND ls_hus TO lt_hus.
+    ENDLOOP.
+
+    IF NOT lt_hus IS INITIAL.
+*...  From now on we work with the message handler
+      CLEAR lf_ident.
+      CALL FUNCTION 'MESSAGES_INITIALIZE'
+        EXPORTING
+          i_identification = lf_ident
+        IMPORTING
+          e_identification = lf_ident
+        EXCEPTIONS
+          OTHERS           = 0.
+
+*...  Condense the object lists for all related HUs into one dummy HU
+      CALL FUNCTION 'CONDENSE_HUS_FOR_COPY_OL'
+        EXPORTING
+          venum         = sf_hu_dummy
+          humpos_tab    = lt_hus
+        EXCEPTIONS
+          no_source_hus = 1
+          OTHERS        = 2.
+
+      IF sy-subrc IS INITIAL.
+*...    Add dummy HU object list to the related delivery item
+        CALL FUNCTION 'SERIAL_COPY_HU_LS'
+          EXPORTING
+            venum                = sf_hu_dummy
+            vepos                = '000000'
+            lief_nr              = gt_live-vbeln
+            lief_pos             = gt_live-posnr
+            material             = xlips-matnr
+            debitor              = likp-kunnr
+            vbtyp                = likp-vbtyp
+            bwart                = xlips-bwart
+            j_vorgang            = lf_vorgang
+            quantity             = if_xanzsn
+          IMPORTING
+            anzsn                = lips-anzsn
+            status_not_allowed   = lf_allowed
+          EXCEPTIONS
+            objectlist_not_found = 1
+            OTHERS               = 2.
+
+*...    Delete internal tables to be able to reuse the dummy HU
+        CALL FUNCTION 'CONDENSE_HUS_FOR_COPY_OL'
+          EXPORTING
+            venum                 = sf_hu_dummy
+            delete_only           = charx
+            humpos_tab            = lt_hus
+          EXCEPTIONS
+            no_source_hus         = 1
+            buffer_already_filled = 2
+            OTHERS                = 3.
+
+*...    Fetch the messages table
+        CALL FUNCTION 'MESSAGES_GIVE'
+          TABLES
+            t_mesg = lt_xmsg.
+
+*...    Move the messages into WAT protocol in case of errors
+        IF NOT lf_allowed IS INITIAL.
+          LOOP AT lt_xmsg.
+            MOVE-CORRESPONDING xlips TO wat.
+            wat-msgno = lt_xmsg-txtnr.
+            wat-msgty = e.
+            wat-msgid = lt_xmsg-arbgb.
+            wat-msgv1 = lt_xmsg-msgv1.
+            wat-msgv2 = lt_xmsg-msgv2.
+            wat-msgv3 = lt_xmsg-msgv3.
+            wat-msgv4 = lt_xmsg-msgv4.
+            APPEND wat.
+          ENDLOOP.
+
+*...      Initialize the messages table
+          CALL FUNCTION 'MESSAGES_INITIALIZE'
+            EXPORTING
+              i_identification = lf_ident
+            EXCEPTIONS
+              OTHERS           = 0.
+        ENDIF.
+      ELSEIF sy-subrc = 2.
+*...    New logic only in case serial numbers are untouched before GM
+        lf_old_logic  = charx.
+      ENDIF.
+    ENDIF.
+  ELSE.
+*...Approved step by step logic:
+    lf_old_logic  = charx.
+  ENDIF.
+
+  IF NOT lf_old_logic IS INITIAL.
+* Sort all the already serialnumbers (XEQUI) assigned to the HUs (2759021)
+    CALL FUNCTION 'IQSM_SORT_TABLE'
+      EXPORTING
+        i_sort_xequi = 'A'.
+
+*...Call function module for copying those object lists which are
+*   linked to HU-items. Copy from HU-item to delivery-item
+    LOOP AT gt_live WHERE vbeln EQ xlips-vbeln AND
+                          posnr EQ xlips-posnr.
+
+*...  From now on we work with the message handler
+      CLEAR lf_ident.
+      CALL FUNCTION 'MESSAGES_INITIALIZE'
+        EXPORTING
+          i_identification = lf_ident
+        IMPORTING
+          e_identification = lf_ident
+        EXCEPTIONS
+          OTHERS           = 0.
+
+*...  Add HU object lists step by step to the related delivery item
+      CALL FUNCTION 'SERIAL_COPY_HU_LS'
+        EXPORTING
+          venum                = gt_live-venum
+          vepos                = gt_live-vepos
+          lief_nr              = gt_live-vbeln
+          lief_pos             = gt_live-posnr
+          material             = xlips-matnr
+          debitor              = likp-kunnr
+          vbtyp                = likp-vbtyp
+          bwart                = xlips-bwart
+          j_vorgang            = lf_vorgang
+          quantity             = if_xanzsn
+        IMPORTING
+          anzsn                = lips-anzsn
+          status_not_allowed   = lf_allowed
+        EXCEPTIONS
+          objectlist_not_found = 1
+          OTHERS               = 2.
+
+*...  Fetch the messages table
+      CALL FUNCTION 'MESSAGES_GIVE'
+        TABLES
+          t_mesg = lt_xmsg.
+
+*...  Move the messages into WAT protocol in case of errors
+      IF NOT lf_allowed IS INITIAL.
+        LOOP AT lt_xmsg.
+          MOVE-CORRESPONDING xlips TO wat.
+          wat-msgno = lt_xmsg-txtnr.
+          wat-msgty = e.
+          wat-msgid = lt_xmsg-arbgb.
+          wat-msgv1 = lt_xmsg-msgv1.
+          wat-msgv2 = lt_xmsg-msgv2.
+          wat-msgv3 = lt_xmsg-msgv3.
+          wat-msgv4 = lt_xmsg-msgv4.
+          APPEND wat.
+        ENDLOOP.
+
+*...    Initialize the messages table
+        CALL FUNCTION 'MESSAGES_INITIALIZE'
+          EXPORTING
+            i_identification = lf_ident
+          EXCEPTIONS
+            OTHERS           = 0.
+      ENDIF.
+    ENDLOOP.
+* Sort by type A not necessary anymore in this process (2759021)
+    CALL FUNCTION 'IQSM_SORT_TABLE_RESET'
+      EXPORTING
+        i_xequi = charx.
+  ENDIF.                                                    "^_n_991579
+
+ENDFORM.                               " HU_COPY_SERNR_TO_LIPS
+
+*&---------------------------------------------------------------------*
+*&      Form  HU_FILL_HU_IMSEG USING IF_IMSEG_TABIX.
+*&---------------------------------------------------------------------*
+*       Fill table HU_IMSEG in case of HU scenario without
+*       stock determination
+*----------------------------------------------------------------------*
+*  -->  IF_IMSEG_TABIX  keeps the IMSEG-Tabix
+*----------------------------------------------------------------------*
+FORM hu_fill_hu_imseg USING if_imseg_tabix.
+
+  DATA: ls_vbfa TYPE vbfa.                                  "n_1099355
+  DATA: lv_sit_flag TYPE flag,                               "SIT
+        lv_retpo    TYPE flag.
+
+*... Execution only in case of HU scenario
+  CHECK NOT v50agl-huactive IS INITIAL OR                     "HUM
+        NOT v50agl-spe_auto_gr IS INITIAL.  "SPM Auto GR
+
+  CHECK NOT xvbuk-pkstk CA ' A'.
+
+  DATA: lf_idxfr LIKE sy-tabix.
+  DATA: lf_idxto LIKE sy-tfill.
+
+  DESCRIBE TABLE gt_live LINES lf_idxto.
+  CHECK lf_idxto GT 0.
+
+*... Table GT_LIVE is already sorted with fields VBELN and POSNR
+  READ TABLE gt_live WITH KEY vbeln = xlips-vbeln
+                              posnr = xlips-posnr.
+  CHECK sy-subrc IS INITIAL.                                "HP_320729
+
+  IF ximseg-sobkz = 'T' AND NOT
+     tvlk-aufer CA 'OH' AND                                 "n_2445679
+     cl_ops_switch_check=>mm_sfws_sit( ) IS NOT INITIAL.
+*   SIT postings from T stock always without HUS!           "v_n_1842901
+*   => VLPOD and GR for return deliveries
+    RETURN.                                                 "^_n_1842901
+  ENDIF.
+
+  IF NOT xlips-hupos IS INITIAL.
+    lf_idxfr = sy-tabix.
+    gt_hu_imseg-venum = gt_live-venum.
+    gt_hu_imseg-vepos = gt_live-vepos.
+    gt_hu_imseg-tabix = if_imseg_tabix.
+    APPEND gt_hu_imseg.
+    lf_idxfr = lf_idxfr + 1.
+    IF NOT likpd-kzebu IS INITIAL.
+      LOOP AT xvbfa INTO ls_vbfa                           "v_n_1099355
+                    WHERE vbelv   = xlips-vbeln   AND
+                          posnv   = xlips-posnr   AND
+                          vbeln   = gt_live-venum AND
+                          posnn   = gt_live-vepos AND
+                          ( vbtyp_v = if_sd_doc_category=>delivery_shipping_notif   OR "n_1306472
+                            vbtyp_v = if_sd_doc_category=>returns_delivery_for_order ) AND
+                          vbtyp_n = if_sd_doc_category=>handling_unit.
+*... SPM XAN INB/RET Partial GR with HUs with dec. confirm    "v_XAN-SPM
+        IF likpd-mdiff_buch = 'X'.
+          ls_vbfa-wbsta = chara.
+        ELSE.
+          ls_vbfa-wbsta = charc.
+        ENDIF.
+        CALL FUNCTION 'RV_XVBFA_MAINTAIN'
+          EXPORTING
+            fvbfa     = ls_vbfa
+            f_vorgang = charv
+          TABLES
+            fxvbfa    = xvbfa
+            fyvbfa    = yvbfa.                             "^_n_1099355
+        "^_XAN-SPM
+      ENDLOOP.
+    ENDIF.
+
+    LOOP AT gt_live FROM lf_idxfr TO lf_idxto.
+      IF gt_live-vbeln NE xlips-vbeln OR
+         gt_live-posnr NE xlips-posnr.
+        EXIT.
+      ENDIF.
+      gt_hu_imseg-venum = gt_live-venum.
+      gt_hu_imseg-vepos = gt_live-vepos.
+      gt_hu_imseg-tabix = if_imseg_tabix.
+      APPEND gt_hu_imseg.
+      IF NOT likpd-kzebu IS INITIAL.
+        LOOP AT xvbfa INTO ls_vbfa                         "v_n_1099355
+                      WHERE vbelv   = xlips-vbeln   AND
+                            posnv   = xlips-posnr   AND
+                            vbeln   = gt_live-venum AND
+                            posnn   = gt_live-vepos AND
+                            ( vbtyp_v = if_sd_doc_category=>delivery_shipping_notif  OR "n_1306472
+                              vbtyp_v = if_sd_doc_category=>returns_delivery_for_order ) AND
+                            vbtyp_n = if_sd_doc_category=>handling_unit.
+*...SPM XAN INB/RET Partial GR with HUs with dec. confirm     "v_XAN-SPM
+          IF likpd-mdiff_buch = 'X'.
+            ls_vbfa-wbsta = chara.
+          ELSE.
+            ls_vbfa-wbsta = charc.
+          ENDIF.                                            "^_XAN-SPM
+          CALL FUNCTION 'RV_XVBFA_MAINTAIN'
+            EXPORTING
+              fvbfa     = ls_vbfa
+              f_vorgang = charv
+            TABLES
+              fxvbfa    = xvbfa
+              fyvbfa    = yvbfa.                           "^_n_1099355
+        ENDLOOP.
+      ENDIF.
+    ENDLOOP.
+  ELSE.
+    CLEAR: gt_humseg_hu.                                    "SP_706607
+    lf_idxfr = sy-tabix.
+    gt_humseg_hu-venum       = gt_live-venum.
+    gt_humseg_hu-vepos       = gt_live-vepos.
+
+* maybe should be changed like the following deactivated code     "v_XAN
+**  C5024641 25.09.2002 Teil-WE Ext. von Daniela
+*   gt_humseg_hu-exidv_ob    = gt_live-exidv_ob.
+    gt_humseg_hu-quantity    = gt_live-vemng.
+    gt_humseg_hu-vemeh       = gt_live-vemeh.
+    gt_humseg_hu-imseg_tabix = if_imseg_tabix.
+*   Update Posting date only if non-WM            "v_n_1282301
+    IF xlikp-lgnum IS INITIAL.
+      gt_humseg_hu-wdatu     = likp-wadat_ist.
+    ENDIF.                                        "^_n_1282301
+
+*   SPM Quantity deviations in HUs                            "v_XAN-SPM
+    IF gt_live-spe_chg_dir <> space.
+      gt_humseg_hu-movement_type = gt_live-spe_chg_dir.
+      gt_humseg_hu-quantity      = gt_live-spe_corr_quan.
+    ENDIF.                                                    "^_XAN-SPM
+
+    PERFORM hu_fill_humseg_hu.
+    APPEND gt_humseg_hu.
+    lf_idxfr = lf_idxfr + 1.
+    IF NOT likpd-kzebu IS INITIAL.
+      LOOP AT xvbfa INTO ls_vbfa                           "v_n_1099355
+                    WHERE vbelv   = xlips-vbeln   AND
+                          posnv   = xlips-posnr   AND
+                          vbeln   = gt_live-venum AND
+                          posnn   = gt_live-vepos AND
+                          ( vbtyp_v = if_sd_doc_category=>delivery_shipping_notif   OR "n_1306472
+                            vbtyp_v = if_sd_doc_category=>returns_delivery_for_order ) AND
+                          vbtyp_n = if_sd_doc_category=>handling_unit.
+*...SPM XAN INB/RET Partial GR with HUs with dec. confirm     "v_XAN-SPM
+        IF likpd-mdiff_buch = 'X'.
+          ls_vbfa-wbsta = chara.
+        ELSE.
+          ls_vbfa-wbsta = charc.
+        ENDIF.                                              "^_XAN-SPM
+        CALL FUNCTION 'RV_XVBFA_MAINTAIN'
+          EXPORTING
+            fvbfa     = ls_vbfa
+            f_vorgang = charv
+          TABLES
+            fxvbfa    = xvbfa
+            fyvbfa    = yvbfa.                             "^_n_1099355
+      ENDLOOP.
+    ENDIF.
+    LOOP AT gt_live FROM lf_idxfr TO lf_idxto.
+* maybe should be changed like the following deactivated code     "v_XAN
+**  LOOP AT gt_live FROM lf_idxfr TO lf_idxto.
+*   LOOP AT GT_LIVE FROM LF_IDXFR.                                "^_XAN
+      IF gt_live-vbeln NE xlips-vbeln OR
+         gt_live-posnr NE xlips-posnr.
+        EXIT.
+      ENDIF.
+      gt_humseg_hu-venum       = gt_live-venum.
+      gt_humseg_hu-vepos       = gt_live-vepos.
+      gt_humseg_hu-quantity    = gt_live-vemng.
+      gt_humseg_hu-vemeh       = gt_live-vemeh.
+      gt_humseg_hu-imseg_tabix = if_imseg_tabix.
+*   SPM Quantity deviations in HUs                            "v_XAN-SPM
+      IF gt_live-spe_chg_dir <> space.
+        gt_humseg_hu-movement_type = gt_live-spe_chg_dir.
+        gt_humseg_hu-quantity      = gt_live-spe_corr_quan.
+      ENDIF.                                                  "^_XAN-SPM
+
+      PERFORM hu_fill_humseg_hu.
+
+* maybe should be changed like the following deactivated code     "v_XAN
+**     C5024641 25.09.2002 Teil-WE Ext. von Daniela
+*      gt_humseg_hu-exidv_ob    = gt_live-exidv_ob.               "^_XAN
+
+      APPEND gt_humseg_hu.
+      IF NOT likpd-kzebu IS INITIAL.
+        LOOP AT xvbfa INTO ls_vbfa                         "v_n_1099355
+                      WHERE vbelv   = xlips-vbeln   AND
+                            posnv   = xlips-posnr   AND
+                            vbeln   = gt_live-venum AND
+                            posnn   = gt_live-vepos AND
+                            ( vbtyp_v = if_sd_doc_category=>delivery_shipping_notif   OR "n_1306472
+                              vbtyp_v = if_sd_doc_category=>returns_delivery_for_order ) AND
+                            vbtyp_n = if_sd_doc_category=>handling_unit.
+*... SPM XAN INB/RET Partial GR with HUs with dec. confirm    "v_XAN-SPM
+          IF likpd-mdiff_buch = 'X'.
+            ls_vbfa-wbsta = chara.
+          ELSE.
+            ls_vbfa-wbsta = charc.
+          ENDIF.                                              "^_XAN-SPM
+          CALL FUNCTION 'RV_XVBFA_MAINTAIN'
+            EXPORTING
+              fvbfa     = ls_vbfa
+              f_vorgang = charv
+            TABLES
+              fxvbfa    = xvbfa
+              fyvbfa    = yvbfa.                           "^_n_1099355
+        ENDLOOP.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+
+ENDFORM.                               " HU_FILL_HU_IMSEG
+
+
+*&---------------------------------------------------------------------*
+*&      Form  HU_FILL_BEFI_HU_IMSEG
+*&---------------------------------------------------------------------*
+*       Fill table HU_IMSEG in case of stock determination
+*----------------------------------------------------------------------*
+*      -->IF_IMSEG_TABIX  keeps the IMSEG-Tabix
+*      -->IF_XVBFA_SOBKZ  Special stock indicator
+*      -->IF_XVBFA_SONUM  Special stock number
+*----------------------------------------------------------------------*
+FORM hu_fill_befi_hu_imseg USING    if_imseg_tabix
+                                    if_xvbfa_sobkz
+                                    if_xvbfa_sonum.
+
+*... Execution only in case of HU scenario
+  CHECK NOT v50agl-huactive IS INITIAL.                     "HUM
+  CHECK NOT xvbuk-pkstk CA ' A'.
+
+  DATA: lf_idxfr LIKE sy-tabix.
+  DATA: lf_idxto LIKE sy-tfill.
+
+  DESCRIBE TABLE gt_live LINES lf_idxto.
+  CHECK lf_idxto GT 0.
+
+*... Table GT_LIVE is already sorted with fields VBELN and POSNR
+  READ TABLE gt_live WITH KEY vbeln = xlips-vbeln
+                              posnr = xlips-posnr.
+  CHECK sy-subrc IS INITIAL.                                "n_451653
+  IF NOT xlips-hupos IS INITIAL.                            "n_451653
+
+    lf_idxfr = sy-tabix.
+*... SOBKZ and SONUM have to be identical
+    IF gt_live-sobkz EQ if_xvbfa_sobkz AND
+       gt_live-sonum EQ if_xvbfa_sonum.
+      gt_hu_imseg-venum = gt_live-venum.
+      gt_hu_imseg-vepos = gt_live-vepos.
+      gt_hu_imseg-tabix = if_imseg_tabix.
+      APPEND gt_hu_imseg.
+    ENDIF.
+
+    lf_idxfr = lf_idxfr + 1.
+    LOOP AT gt_live FROM lf_idxfr TO lf_idxto.
+      IF gt_live-vbeln NE xlips-vbeln OR
+         gt_live-posnr NE xlips-posnr.
+        EXIT.
+      ENDIF.
+*... SOBKZ and SONUM have to be identical
+      IF gt_live-sobkz EQ if_xvbfa_sobkz AND
+         gt_live-sonum EQ if_xvbfa_sonum.
+        gt_hu_imseg-venum = gt_live-venum.
+        gt_hu_imseg-vepos = gt_live-vepos.
+        gt_hu_imseg-tabix = if_imseg_tabix.
+        APPEND gt_hu_imseg.
+      ENDIF.
+    ENDLOOP.
+  ELSE.                                                     "v_n_451653
+    lf_idxfr = sy-tabix.
+    IF gt_live-sobkz EQ if_xvbfa_sobkz AND
+       gt_live-sonum EQ if_xvbfa_sonum.
+      gt_humseg_hu-venum       = gt_live-venum.
+      gt_humseg_hu-vepos       = gt_live-vepos.
+      gt_humseg_hu-quantity    = gt_live-vemng.
+      gt_humseg_hu-vemeh       = gt_live-vemeh.
+      gt_humseg_hu-imseg_tabix = if_imseg_tabix.
+      PERFORM hu_fill_humseg_hu.
+      APPEND gt_humseg_hu.
+    ENDIF.
+    lf_idxfr = lf_idxfr + 1.
+    LOOP AT gt_live FROM lf_idxfr TO lf_idxto.
+      IF gt_live-vbeln NE xlips-vbeln OR
+         gt_live-posnr NE xlips-posnr.
+        EXIT.
+      ENDIF.
+      gt_humseg_hu-venum       = gt_live-venum.
+      gt_humseg_hu-vepos       = gt_live-vepos.
+      gt_humseg_hu-quantity    = gt_live-vemng.
+      gt_humseg_hu-vemeh       = gt_live-vemeh.
+      gt_humseg_hu-imseg_tabix = if_imseg_tabix.
+      PERFORM hu_fill_humseg_hu.
+      APPEND gt_humseg_hu.
+    ENDLOOP.
+  ENDIF.                                                    "^_n_451653
+
+ENDFORM.                               " HU_FILL_BEFI_HU_IMSEG
+*&---------------------------------------------------------------------*
+*&      Form  HU_FILL_HUMSEG_HU
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM hu_fill_humseg_hu.
+
+  DATA: ls_lemovdat LIKE lemovdat,
+        ls_header   TYPE vekpvb,
+        ls_ekpo     TYPE ekpo,
+        lf_xchar    TYPE xfeld,
+        wa_xvbpa    LIKE vbpa.                              "n_1845520
+
+  CALL FUNCTION 'V51P_OVEKP_FILL'                           "SP_563194
+    EXPORTING
+      if_highest_number = 'X'
+      if_venum          = gt_humseg_hu-venum
+      if_no_04          = 'X'
+    IMPORTING
+      es_highest_hu     = ls_header
+    EXCEPTIONS
+      vekp_not_found    = 1
+      no_upper_vse      = 2
+      wrong_vepo        = 3
+      OTHERS            = 4.
+  IF sy-subrc IS INITIAL AND
+     ( xlikp-vbtyp           <> if_sd_doc_category=>delivery_shipping_notif OR
+       xlikp-spe_le_scenario <> 'S'        OR
+       ls_header-vpobj       <> gc_pacobj-x_ibdlvry ).
+    gt_humseg_hu-exidv_ob = ls_header-exidv.
+  ENDIF.
+  IF sy-subrc = 2.
+    ls_header-venum = gt_humseg_hu-venum.
+    CALL FUNCTION 'V51P_FIND_HEADER'
+      EXPORTING
+        is_vekp        = ls_header
+      IMPORTING
+        es_header      = ls_header
+      EXCEPTIONS
+        not_found      = 1
+        no_shp_mat     = 2
+        error_on_exidv = 3
+        fatal_error    = 4
+        OTHERS         = 5.
+    IF sy-subrc IS INITIAL.
+      gt_humseg_hu-exidv_ob = ls_header-exidv.
+    ENDIF.
+  ENDIF.
+
+
+  IF xlips-shkzg CA ' X'.          "<<< note 364189
+    CALL FUNCTION 'LE_MOVEMENT_DATA_DETERMINE_TAB'
+      EXPORTING
+        if_select_t156  = charx
+        is_lips         = xlips
+      IMPORTING
+        es_lemovdat     = ls_lemovdat
+      EXCEPTIONS
+        no_entry_t001w  = 1
+        no_entry_t001l  = 2
+        no_entry_t134m  = 3
+        no_entry_t156   = 4
+        no_entry_t156s  = 5
+        no_entry_t156sc = 6
+        no_entry_t156n  = 7
+        no_entry_t156q  = 8
+        no_entry_t159l  = 9
+        no_entry_mara   = 10
+        OTHERS          = 11.
+    IF sy-subrc <> 0.
+
+    ELSE.
+      MOVE ls_lemovdat-shkzg TO xlips-shkzg.
+    ENDIF.
+  ENDIF.
+
+* Determine field LEIT
+  CASE xlips-shkzg.
+    WHEN chars.
+      gt_humseg_hu-leit = char_plus.
+    WHEN charh.
+      gt_humseg_hu-leit = char-.
+  ENDCASE.
+
+* Begin of note 1373167
+* An adjustment of the determined value might be necessary for
+* one step transfers to dec. WM using movement type 311/301
+  IF gt_humseg_hu-leit = char-  AND
+     xlikp-vbtyp = if_sd_doc_category=>delivery_shipping_notif   AND         "like inbound delivery
+     xlikp-kzwab = 'D'          AND         "movement is on dec. system
+     xlips-posting_change = 'C' AND
+     xlips-shkzg_um IS INITIAL  AND
+     xlips-kzuml IS INITIAL.
+
+    gt_humseg_hu-leit = char_plus.
+  ENDIF.
+* End of note 1373167
+
+* Fill fields for normal and transfer positings
+
+  CASE xlips-shkzg_um.
+    WHEN char1.
+      gt_humseg_hu-matnr      = xlips-matnr.
+      gt_humseg_hu-werks      = xlips-werks.
+      gt_humseg_hu-lgort      = xlips-lgort.
+      gt_humseg_hu-bestq      = xlips-bestq.
+      gt_humseg_hu-sonum      = xlips-sonum.
+      gt_humseg_hu-sobkz      = xlips-sobkz.
+      IF xlips-xchar = charx AND                            "v_n_508396
+         xlips-xchpf IS INITIAL AND
+         xlips-bwtex = charx.
+        gt_humseg_hu-charg      = xlips-bwtar.
+      ELSE.
+        gt_humseg_hu-charg      = xlips-charg.
+      ENDIF.                                                "^_n_508396
+      IF cl_ops_switch_check=>sfsw_segmentation( ) EQ abap_on and ( gt_humseg_hu-sgt_scat is initial ).     "3255772
+            gt_humseg_hu-sgt_scat = xlips-sgt_scat.
+      ENDIF.
+
+      IF NOT xlips-kzuml IS INITIAL
+* For CC-postings KZUML is filled though HUs are posted GI
+         AND NOT xlips-posting_change = 'D'                 "SP_517871
+         AND NOT xlips-posting_change = 'E'.
+        gt_humseg_hu-n_matnr    = xlips-ummat.
+        gt_humseg_hu-n_werks    = xlips-umwrk.
+        gt_humseg_hu-n_lgort    = xlips-umlgo.
+        gt_humseg_hu-n_sobkz    = xlips-umsok.
+        gt_humseg_hu-n_bestq    = xlips-umbsq.
+        gt_humseg_hu-n_sonum    = xlips-usonu.
+        IF NOT xlips-fobwa IS INITIAL.                      "HP_435904
+          IF gt_humseg_hu-leit = '+'.
+            gt_humseg_hu-gegen = '-'.
+          ELSE.
+            gt_humseg_hu-gegen = '+'.
+          ENDIF.
+        ENDIF.
+        IF xlips-xchar = charx AND                          "v_n_508396
+           xlips-xchpf IS INITIAL AND
+           xlips-bwtex = charx.
+          gt_humseg_hu-n_charg    = xlips-umbar.
+        ELSE.
+          gt_humseg_hu-n_charg    = xlips-umcha.
+        ENDIF.                                              "^_n_508396
+        IF NOT gt_humseg_hu-charg IS INITIAL AND           "v_n_1699862
+               gt_humseg_hu-n_charg IS INITIAL.
+*.......check, if the material is also batch-managed in the destination
+*.......plant. If yes, take the source charg.
+          PERFORM batch_managed USING gt_humseg_hu-matnr
+                                      gt_humseg_hu-n_werks
+                             CHANGING lf_xchar.
+          IF NOT lf_xchar IS INITIAL.
+            gt_humseg_hu-n_charg = gt_humseg_hu-charg.
+          ENDIF.
+        ENDIF.                                             "^_n_1699862
+      ENDIF.
+      IF cl_ops_switch_check=>sfsw_segmentation( ) EQ abap_on and ( gt_humseg_hu-charg eq gt_humseg_hu-n_charg ). "3239161
+            gt_humseg_hu-sgt_umscat = gt_humseg_hu-sgt_scat.
+      ENDIF.
+      CASE xlips-posting_change.                            "HP_435904
+        WHEN 'A'.
+          gt_humseg_hu-g_transit = 'X'.
+        WHEN 'B'.
+          IF gt_humseg_hu-leit = '+'.
+            gt_humseg_hu-l_transit = 'X'.
+          ELSE.
+            gt_humseg_hu-g_transit = 'X'.
+          ENDIF.
+      ENDCASE.
+    WHEN char2.
+      gt_humseg_hu-matnr      = xlips-ummat.
+      gt_humseg_hu-werks      = xlips-umwrk.
+      gt_humseg_hu-lgort      = xlips-umlgo.
+      gt_humseg_hu-bestq      = xlips-umbsq.
+      gt_humseg_hu-sobkz      = xlips-umsok.
+      gt_humseg_hu-sonum      = xlips-usonu.
+      IF xlips-xchar = charx AND                            "v_n_508396
+         xlips-xchpf IS INITIAL AND
+         xlips-bwtex = charx.
+        gt_humseg_hu-charg      = xlips-umbar.
+      ELSE.
+        gt_humseg_hu-charg      = xlips-umcha.
+      ENDIF.                                                "^_n_508396
+      IF NOT xlips-kzuml IS INITIAL
+         AND NOT xlips-posting_change = 'D'                 "SP_528859
+         AND NOT xlips-posting_change = 'E'.
+        gt_humseg_hu-n_matnr    = xlips-matnr.
+        gt_humseg_hu-n_werks    = xlips-werks.
+        gt_humseg_hu-n_lgort    = xlips-lgort.
+        gt_humseg_hu-n_bestq    = xlips-bestq.
+        gt_humseg_hu-n_sobkz    = xlips-sobkz.
+        gt_humseg_hu-n_sonum    = xlips-sonum.
+        IF NOT xlips-fobwa IS INITIAL.                      "HP_435904
+          IF gt_humseg_hu-leit = '+'.
+            gt_humseg_hu-gegen = '-'.
+          ELSE.
+            gt_humseg_hu-gegen = '+'.
+          ENDIF.
+        ENDIF.
+        IF xlips-xchar = charx AND                          "v_n_508396
+           xlips-xchpf IS INITIAL AND
+           xlips-bwtex = charx.
+          gt_humseg_hu-n_charg    = xlips-bwtar.
+        ELSE.
+          gt_humseg_hu-n_charg    = xlips-charg.
+        ENDIF.                                              "^_n_508396
+      ENDIF.
+      CASE xlips-posting_change.                            "HP_435904
+        WHEN 'A'.
+          gt_humseg_hu-g_transit = 'X'.
+        WHEN 'B'.
+          IF gt_humseg_hu-leit = '+'.
+            gt_humseg_hu-l_transit = 'X'.
+          ELSE.
+            gt_humseg_hu-g_transit = 'X'.
+          ENDIF.
+      ENDCASE.
+    WHEN OTHERS.
+      MOVE-CORRESPONDING xlips TO gt_humseg_hu.
+      IF xlips-xchar = charx AND                            "v_n_508396
+         xlips-xchpf IS INITIAL AND
+         xlips-bwtex = charx.
+        gt_humseg_hu-charg    = xlips-bwtar.
+      ENDIF.                                                "^_n_508396
+      IF cl_sd_doc_category_util=>is_delivery_outgoing( iv_vbtyp = xlikp-vbtyp ) "n_1551643
+         AND tvlk-aufer = 'B'    "(Umlagerbestellung)
+         AND NOT xlips-posting_change = 'D'                 "SP_528859
+         AND NOT xlips-posting_change = 'E'.
+        gt_humseg_hu-n_matnr = xlips-matnr.
+        IF xlips-xchar = charx AND
+           xlips-xchpf IS INITIAL AND
+           xlips-bwtex = charx.
+          gt_humseg_hu-n_charg = xlips-umbar.
+        ELSE.
+          gt_humseg_hu-n_charg = xlips-umcha.
+        ENDIF.
+        gt_humseg_hu-n_werks = xlikp-werks.
+        IF NOT gt_humseg_hu-charg IS INITIAL AND            "SP_638754
+               gt_humseg_hu-n_charg IS INITIAL.
+*.......check, if the material is also batch-managed in the destination
+*.......plant. If yes, take the source charg.
+          PERFORM batch_managed USING gt_humseg_hu-matnr
+                                      xlikp-werks
+                             CHANGING lf_xchar.
+          IF NOT lf_xchar IS INITIAL.
+            gt_humseg_hu-n_charg = gt_humseg_hu-charg.
+          ENDIF.
+        ENDIF.
+        IF cl_ops_switch_check=>sfsw_segmentation( ) EQ abap_on and ( gt_humseg_hu-charg eq gt_humseg_hu-n_charg ). "3239161
+            gt_humseg_hu-sgt_umscat = gt_humseg_hu-sgt_scat.
+        ENDIF.
+*.......In the case of purchase orders the destination field umlgo
+*.......and umwrk are not filled in lips.
+        IF xlips-posting_change CA 'CF'.                    "SP_580367
+          CLEAR ls_ekpo.
+          PERFORM hu_get_ekpo USING xlips-vgbel xlips-vgpos
+                              CHANGING ls_ekpo.
+          IF NOT ls_ekpo-lgort IS INITIAL.
+            gt_humseg_hu-n_lgort = ls_ekpo-lgort.
+          ENDIF.
+        ENDIF.
+        gt_humseg_hu-n_bestq = xlips-bestq.
+        gt_humseg_hu-n_sobkz = xlips-sobkz.
+        gt_humseg_hu-n_sonum = xlips-sonum.
+        IF gt_humseg_hu-leit = '+'.                         "HP_435904
+          gt_humseg_hu-gegen = '-'.
+        ELSE.
+          gt_humseg_hu-gegen = '+'.
+        ENDIF.
+        CASE xlips-posting_change.                          "HP_435904
+          WHEN 'A'.
+            gt_humseg_hu-g_transit = 'X'.
+          WHEN 'B'.
+            IF gt_humseg_hu-leit = '+'.
+              gt_humseg_hu-l_transit = 'X'.
+            ELSE.
+              gt_humseg_hu-g_transit = 'X'.
+            ENDIF.
+        ENDCASE.
+      ENDIF.
+*.....Transfer to consi. In this case the only hint that     SP_565685
+*.....it is a transfer and no GI ist posting_change = C
+      IF xlips-kzuml IS INITIAL AND xlips-posting_change = 'C'
+         AND cl_sd_doc_category_util=>is_delivery_outgoing( iv_vbtyp = xlikp-vbtyp ) AND tvlk-aufer CA 'LX'. "n_694544
+        IF xlikp-vbtyp = if_sd_doc_category=>delivery.      "SP_584157
+          gt_humseg_hu-gegen = '+'.
+* note 2145516 - 10 lines moved
+          IF tvlk-aufer = 'L'.              " Subcontracting
+            gt_humseg_hu-n_sobkz = 'O'.
+* Subcontracting - Vendor number to be stored in destination item
+            gt_humseg_hu-n_sonum = xlikp-lifnr.             "n_2145516
+          ELSE.                             " Consignment
+            gt_humseg_hu-n_sobkz = 'W'.
+* Consignment Customer number to be stored in destination item (or special stock partner)
+* If Special Stock Partner exists, HU must be updated.......n_v_1845520/2145516
+            CLEAR wa_xvbpa.
+            READ TABLE xvbpa WITH KEY
+                    vbeln = xlikp-vbeln posnr = '000000' parvw = 'SB'
+                            INTO wa_xvbpa.
+            IF NOT wa_xvbpa-kunnr IS INITIAL.
+              gt_humseg_hu-n_sonum = wa_xvbpa-kunnr.
+            ELSE.                                            "n_^_1845520
+              gt_humseg_hu-n_sonum = xlikp-kunnr.           "n_v_853846
+            ENDIF.
+          ENDIF.                                            "n_^_853846
+
+          "{ Begin ENHO ADSUB_FV50WF0H IS-AD-SUC AD_SUB }
+**- Transfer right special stock for A&D Subcontracting        v-1960204
+**- relevant items
+          DATA: ls_adrelev  TYPE adsub_d_isads,
+                ls_ad_ebeln TYPE ebeln,
+                ls_ad_ebelp TYPE ebelp.
+
+          IF xlips-vgbel IS NOT INITIAL AND
+             xlips-vgpos IS NOT INITIAL AND
+             tvlk-aufer  EQ 'L'.
+*- Check PO's A&D Subcontracting relevancy
+            CLEAR: ls_adrelev, ls_ad_ebeln, ls_ad_ebelp.
+            MOVE: xlips-vgbel TO ls_ad_ebeln,
+                  xlips-vgpos TO ls_ad_ebelp.
+            CALL FUNCTION 'ADSUB_CHECK_PO'
+              EXPORTING
+                iv_ebeln       = ls_ad_ebeln
+                iv_ebelp       = ls_ad_ebelp
+              IMPORTING
+                ev_adrelev     = ls_adrelev
+              EXCEPTIONS
+                ex_no_po_found = 1
+                OTHERS         = 2.
+*- Reference PO is A&D relevant
+            IF sy-subrc EQ 0.
+              IF ls_adrelev IS NOT INITIAL.
+*- Copy next special stock indicator instead of static 'O'
+                CALL FUNCTION 'DISUB_GET_SPECIAL_STOCK_IND_SC'
+                  EXPORTING
+                    im_sobkz                = gt_humseg_hu-sobkz
+                  IMPORTING
+                    ex_sobkz                = gt_humseg_hu-n_sobkz
+                  EXCEPTIONS
+                    no_special_stock_for_sc = 1
+                    OTHERS                  = 2.
+*- Copy next special stock identifier
+                gt_humseg_hu-n_sonum = gt_humseg_hu-sonum.
+              ENDIF.          "PO A&D subcon relevant
+            ENDIF.            "PO A&D Subcon check call
+          ENDIF.              "PO and PO item filled           ^-1960204
+*          "{ End ENHO ADSUB_FV50WF0H IS-AD-SUC AD_SUB }
+
+ENHANCEMENT-POINT adsub_hu_fill_humseg_hu_01 SPOTS es_sapfv50w .
+
+        ELSE.
+          gt_humseg_hu-gegen = '-'.
+          gt_humseg_hu-n_sobkz = gt_humseg_hu-sobkz.        "n_853846
+          gt_humseg_hu-n_sonum = gt_humseg_hu-sonum.        "n_853846
+        ENDIF.
+        gt_humseg_hu-n_werks = gt_humseg_hu-werks.
+        gt_humseg_hu-n_matnr = gt_humseg_hu-matnr.
+        gt_humseg_hu-n_charg = gt_humseg_hu-charg.
+*        gt_humseg_hu-n_sobkz = gt_humseg_hu-sobkz.             n_853846
+*        gt_humseg_hu-n_sonum = gt_humseg_hu-sonum.             n_853846
+        gt_humseg_hu-n_bestq = gt_humseg_hu-bestq.
+      ENDIF.
+      IF xlikp-vbtyp = if_sd_doc_category=>delivery_shipping_notif                                 "note 628989
+*         and xlips-posting_change is initial "              "SP_681416
+         AND tvlk-aufer = 'B'.
+*         and xlips-kzuml is initial.                        "SP_681416
+        CASE xlips-insmk.
+          WHEN 'X' OR '2'.
+            gt_humseg_hu-bestq = 'Q'.
+          WHEN 'S' OR '3'.
+            gt_humseg_hu-bestq = 'S'.
+        ENDCASE.
+        IF xlikp-mdiff_buch IS NOT INITIAL.                "v_n_1098150
+          CASE xlips-spe_mdiff_insmk.
+            WHEN 'X' OR '2'.
+              gt_humseg_hu-bestq = 'Q'.
+            WHEN 'S' OR '3'.
+              gt_humseg_hu-bestq = 'S'.
+            WHEN 'F'.
+              gt_humseg_hu-bestq = ' '.
+          ENDCASE.
+        ENDIF.                                             "^_n_1098150
+      ENDIF.
+  ENDCASE.
+* Special case: Return to vendor with handling units         "v_n_564521
+*                   (movement types 122 and 161)
+  IF likp-vbtyp EQ if_sd_doc_category=>delivery   AND
+     xlips-kzbew CA 'BF'    AND NOT
+     xlips-vgbel IS INITIAL AND NOT
+     xlips-vgpos IS INITIAL AND
+     xlips-vgtyp EQ if_sd_doc_category=>purchase_order   AND
+     tvlk-aufer CA 'BR'.
+*... Check that the Advanced Returns Management Functionality is active  "v_n_1386748
+    IF cl_ops_switch_check=>ops_sfws_sc_advret1( ) IS NOT INITIAL AND
+       likp-msr_active = charx.
+      IF xlips-posting_change NA 'BE'.
+        CLEAR: gt_humseg_hu-gegen  ,
+               gt_humseg_hu-n_matnr,
+               gt_humseg_hu-n_charg,
+               gt_humseg_hu-n_werks,
+               gt_humseg_hu-n_lgort,
+               gt_humseg_hu-n_bestq,
+               gt_humseg_hu-n_sobkz,
+               gt_humseg_hu-n_sonum,
+               gt_humseg_hu-n_lgnum,
+               gt_humseg_hu-n_lgtyp,
+               gt_humseg_hu-n_lgpla.
+      ENDIF.
+*... non ARM Process
+    ELSE.                                                               "^_n_1386748
+      IF xlips-posting_change NA 'BE'.                      "n_1990319
+        CLEAR: gt_humseg_hu-gegen  ,
+             gt_humseg_hu-n_matnr,
+             gt_humseg_hu-n_charg,
+             gt_humseg_hu-n_werks,
+             gt_humseg_hu-n_lgort,
+             gt_humseg_hu-n_bestq,
+             gt_humseg_hu-n_sobkz,
+             gt_humseg_hu-n_sonum,
+             gt_humseg_hu-n_lgnum,
+             gt_humseg_hu-n_lgtyp,
+             gt_humseg_hu-n_lgpla.
+      ENDIF.                                                "n_1990319
+    ENDIF.                                                  "n_1386748
+  ENDIF.                                                    "^_n_564521
+  CLEAR gt_humseg_hu-qplos.
+ENDFORM.                               " HU_FILL_HUMSEG_HU
+*&---------------------------------------------------------------------*
+*&      Form  HU_UPDATE_FROM_HUMSEG
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM hu_update_from_humseg.
+  CHECK NOT xvbuk-pkstk CA ' A'.
+  CHECK NOT gt_humseg_hu[] IS INITIAL.
+
+  CALL FUNCTION 'HU_UPDATE_FROM_HUMSEG'
+    CHANGING
+      ct_hu_mseg     = gt_humseg_hu[]
+    EXCEPTIONS
+      imseg_q_higher = 1
+      fatal_error    = 2
+      OTHERS         = 3.
+  IF sy-subrc <> 0.
+* MESSAGE ID SY-MSGID TYPE SY-MSGTY NUMBER SY-MSGNO
+*         WITH SY-MSGV1 SY-MSGV2 SY-MSGV3 SY-MSGV4.
+  ENDIF.
+
+  "{ Begin ENHO AUTO_BOR_FV50WF0H IS-A-GR AM_GR }
+* C5024641 12.02.2003 Fatal Error soll berücksichtigen !!
+  IF sy-subrc = 2.
+    wat-msgid = sy-msgid.
+    wat-msgty = sy-msgty.
+    wat-msgno = sy-msgno.
+    wat-msgv1 = sy-msgv1.
+    wat-msgv2 = sy-msgv2.
+    wat-msgv3 = sy-msgv3.
+    wat-msgv4 = sy-msgv4.
+    APPEND wat.
+  ENDIF.
+  "{ End ENHO AUTO_BOR_FV50WF0H IS-A-GR AM_GR }
+
+ENHANCEMENT-POINT fv50wf0h_04 SPOTS es_sapfv50w.
+
+ENDFORM.                               " HU_UPDATE_FROM_HUMSEG
+*&---------------------------------------------------------------------*
+*&      Form  HU_COMPLETENESS_CHECK
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_LIKP_KZWAB  text
+*      -->P_CF_SUBRC  text
+*----------------------------------------------------------------------*
+FORM hu_completeness_check  USING    if_likp_kzwab
+                                     cf_subrc.
+
+  LOOP AT gt_live.
+    cf_subrc = 4.
+    IF if_likp_kzwab CA ' I'.
+* Buchung im zentralen System
+      LOOP AT ximseg.
+        IF ximseg-posnr = gt_live-posnr.
+          cf_subrc = 0.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
+    ELSEIF if_likp_kzwab EQ chard.
+* Buchung im dezentralen System
+      LOOP AT xlseg_com.
+        IF xlseg_com-lvbps = gt_live-posnr.
+          cf_subrc = 0.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
+    ENDIF.
+    IF cf_subrc > 0.
+      EXIT.
+    ENDIF.
+  ENDLOOP.
+
+ENDFORM.                    " HU_COMPLETENESS_CHECK
+
+
+*&--------------------------------------------------------------------*
+*&      Form  hu_get_ekpo
+*&--------------------------------------------------------------------*
+*       text
+*---------------------------------------------------------------------*
+*      -->IF_VGBEL   text
+*      -->IF_VGPOS   text
+*      -->ES_EKPO    text
+*---------------------------------------------------------------------*
+FORM hu_get_ekpo USING    if_vgbel TYPE vgbel               "SP_549474
+                          if_vgpos TYPE vgpos
+                 CHANGING es_ekpo TYPE ekpo.
+
+  DATA: lt_ekpo  TYPE TABLE OF ekpo,
+        lf_tabix LIKE sy-tabix.
+  STATICS: st_ekpo TYPE TABLE OF ekpo.
+
+  READ TABLE st_ekpo INTO es_ekpo WITH KEY ebeln = if_vgbel
+                                     ebelp = if_vgpos+1(5)
+                                     BINARY SEARCH.
+  IF sy-subrc IS INITIAL.
+    EXIT.
+  ELSE.
+    lf_tabix = sy-tabix.
+    SELECT * FROM ekpo INTO TABLE lt_ekpo WHERE ebeln = if_vgbel
+                       ORDER BY PRIMARY KEY.                "n_762297
+    IF sy-subrc IS INITIAL.
+      INSERT LINES OF lt_ekpo INTO st_ekpo INDEX lf_tabix.
+      READ TABLE lt_ekpo INTO es_ekpo WITH KEY ebeln = if_vgbel
+                                               ebelp = if_vgpos+1(5)
+                                               BINARY SEARCH.
+    ENDIF.
+  ENDIF.
+ENDFORM.                    " hu_get_ekpo
+
+*&--------------------------------------------------------------------*
+*&      Form  batch_managed
+*&--------------------------------------------------------------------*
+*       text
+*---------------------------------------------------------------------*
+*      -->IF_MATNR   text
+*      -->IF_WERKS   text
+*      -->EF_XCHAR   text
+*---------------------------------------------------------------------*
+FORM batch_managed USING if_matnr TYPE matnr
+                         if_werks TYPE werks_d
+                CHANGING ef_xchar TYPE xfeld.
+
+  DATA: ls_mtcom   TYPE mtcom, ls_marc_md TYPE v_marc_md.
+
+  CLEAR ef_xchar.
+  ls_mtcom-maxtz = 50.
+  ls_mtcom-kzmpn = 'X'.
+  ls_mtcom-spras = sy-langu.
+  ls_mtcom-kenng = 'MARCM'.
+  ls_mtcom-matnr = if_matnr.
+  ls_mtcom-werks = if_werks.
+* MMACCESS_2015W1_ADJUSTED
+  CALL FUNCTION 'MATERIAL_READ'
+    EXPORTING
+      schluessel = ls_mtcom
+    IMPORTING
+      matdaten   = ls_marc_md
+    EXCEPTIONS
+      OTHERS     = 99.
+  IF NOT sy-subrc IS INITIAL.
+    RAISE not_possible.
+  ENDIF.
+  IF NOT ls_marc_md-xchar IS INITIAL AND NOT
+         ls_marc_md-xchpf IS INITIAL.
+    ef_xchar = 'X'.
+  ENDIF.
+ENDFORM.                    "batch_managed
