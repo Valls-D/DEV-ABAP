@@ -2497,3 +2497,1704 @@ ENDFORM.                    " add_packinst_determin_fields
 
 ENHANCEMENT-POINT V51P_PACKING_DETERMINATION_03 SPOTS ES_SAPLV51P STATIC.
 "$$
+
+FUNCTION v51p_add_hu_to_objekt.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     VALUE(IT_HUS) TYPE  VSEP_T_EXIDV
+*"  EXPORTING
+*"     VALUE(EF_RCODE) LIKE  SY-SUBRC
+*"     VALUE(ET_HUS) TYPE  VSEP_T_EXIDV
+*"     VALUE(ET_MESSAGES) TYPE  HUITEM_MESSAGES_T
+*"  EXCEPTIONS
+*"      HUS_LOCKED
+*"      NOT_POSSIBLE
+*"      NOTHING_FOUND
+*"      FATAL_ERROR
+*"----------------------------------------------------------------------
+
+  INCLUDE incl_pu26_data.
+  DATA: lf_tabix_handl_un TYPE sy-tabix.                    "n_1573088
+  FIELD-SYMBOLS:  <hu_header> TYPE vekpvb.                  "n_1343458
+
+  "{ Begin ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+  FIELD-SYMBOLS: <gt_v51vp> TYPE v51vp,
+                 <lt_xvepo> TYPE vepovb.
+  DATA: lf_ref_error(1)     TYPE c.
+  DATA: wa_vepo     TYPE vepovb,
+        wa_vepo_tmp TYPE vepovb,
+        wa_v51vp    TYPE v51vp,
+        lf_error    TYPE c.
+  TABLES: tvlk.
+  DATA: lt_venums TYPE hum_venum_t,
+        wa_venum  TYPE hum_venum,
+        wa_hu     TYPE vekpvb.
+
+  "{ End ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+
+ENHANCEMENT-POINT v51p_add_hu_to_objekt_01 SPOTS es_saplv51p STATIC.
+  IF gs_header51-object IS INITIAL.
+    MESSAGE e069(hugeneral) RAISING not_possible.
+  ENDIF.
+  lt_handl_un = it_hus.
+  SORT lt_handl_un.
+  DELETE ADJACENT DUPLICATES FROM lt_handl_un.
+  LOOP AT lt_handl_un INTO ls_hu.
+    READ TABLE gt_xvekp TRANSPORTING NO FIELDS
+                        WITH KEY exidv = ls_hu-exidv.
+    IF sy-subrc IS INITIAL.
+      READ TABLE gt_xvekp INTO ls_vekp INDEX sy-tabix.
+*....... Handling Units is already assigned to this object ...........
+      IF ls_vekp-vpobj = gs_header51-object AND
+         ls_vekp-vpobjkey = gs_header51-objkey.
+        DELETE lt_handl_un.
+        lf_msgv1 = ls_hu-exidv.
+*       message e147(hudialog).
+        PERFORM set_hu_msg USING    ls_hu-exidv 'HUDIALOG' 'E' '147'
+                                    lf_msgv1 space space space
+                           CHANGING lt_messages.
+        CONTINUE.
+      ELSE.
+        MESSAGE e147(hugeneral) RAISING not_possible.
+      ENDIF.
+    ENDIF.
+    READ TABLE gt_yvekp TRANSPORTING NO FIELDS
+                        WITH KEY exidv = ls_hu-exidv.
+    IF sy-subrc IS INITIAL.
+      ef_rcode = 4.
+      WRITE ls_hu-exidv TO lf_msgv1 USING EDIT MASK '==ALPHA'.
+*     message e148(hudialog).
+      PERFORM set_hu_msg USING ls_hu-exidv 'HUDIALOG' 'E' '148'
+                               lf_msgv1 space space space
+                         CHANGING lt_messages.
+      DELETE lt_handl_un.
+    ENDIF.
+  ENDLOOP.
+  ls_flags-lock_hu = charx.
+  ls_flags-text      = charx.
+  ls_flags-mara_packmittel = charx.
+  ls_flags-more_hus  = charx.
+  ls_flags-no_humseg = charx.
+  INCLUDE incl_clear_msg.
+  CALL FUNCTION 'V51P_FILL_GT'
+    EXPORTING
+      is_flags    = ls_flags
+      it_hus      = lt_handl_un
+    IMPORTING
+      ef_rcode    = lf_rcode
+      et_vekp     = lt_xvekp
+      et_vepo     = lt_xvepo
+      et_vevw     = lt_vevw
+      et_messages = et_messages
+    EXCEPTIONS
+      hu_locked   = 01
+      no_hu_found = 02
+      fatal_error = 99.
+  CASE sy-subrc.
+    WHEN 01. RAISE hus_locked.
+    WHEN 02. RAISE nothing_found.
+    WHEN 99.
+      IF sy-msgid IS INITIAL.
+        MESSAGE e099(hugeneral) RAISING fatal_error.
+      ELSE.
+        RAISE fatal_error.
+      ENDIF.
+  ENDCASE.
+
+  "{ Begin ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+* DI46C2 - Auto 3.0 - VHU
+* check if the references on HURES are not references for
+* customer order
+
+  READ TABLE gt_v51vp INDEX 1 ASSIGNING <gt_v51vp>.
+  IF sy-subrc = 0.
+    LOOP AT lt_xvepo ASSIGNING <lt_xvepo> WHERE velin = '1'.
+      IF NOT <lt_xvepo>-dlvry IS INITIAL.
+        IF <gt_v51vp>-uecha IS INITIAL.                     "SP_510754
+          IF <gt_v51vp>-vbeln <> <lt_xvepo>-dlvry   OR
+             <gt_v51vp>-posnr <> <lt_xvepo>-dlvryit.
+            lf_ref_error = 'D'.
+          ENDIF.
+        ELSE.   "batch split item                     "SP_510754_v
+*             VL10HU case: reference exists only for main item
+          IF <gt_v51vp>-vbeln <> <lt_xvepo>-dlvry   OR
+             <gt_v51vp>-uecha <> <lt_xvepo>-dlvryit.
+            lf_ref_error = 'D'.
+          ENDIF.
+        ENDIF.                                        "SP_510754_^
+      ENDIF.
+    ENDLOOP.
+  ELSE.
+    LOOP AT lt_xvepo ASSIGNING <lt_xvepo> WHERE velin = '1'.
+      IF NOT <lt_xvepo>-dlvry IS INITIAL.
+        lf_ref_error = 'X'.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+
+  IF lf_ref_error = 'D'.
+*    message w250(vhuap).
+    WRITE ls_hu-exidv TO lf_msgv1.
+    PERFORM set_hu_msg USING    ls_hu-exidv 'VHUAP' 'W' '250'
+                                lf_msgv1 space space space
+                       CHANGING lt_messages.
+  ELSEIF lf_ref_error = 'X'.
+*    message w253(vhuap).
+    WRITE ls_hu-exidv TO lf_msgv1.
+    PERFORM set_hu_msg USING    ls_hu-exidv 'VHUAP' 'W' '253'
+                                lf_msgv1 space space space
+                       CHANGING lt_messages.
+  ENDIF.
+
+  "{ End ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+
+ENHANCEMENT-POINT v51p_add_hu_to_objekt_02 SPOTS es_saplv51p.
+  APPEND LINES OF lt_messages TO et_messages.
+
+  "{ Begin ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+* DI46C2 - REFERENCE INHERITANCE                               SP_516152
+
+* reference check only in HU02, not in VLxxN
+* object is '01' or '03' for inbound/outbound delivery
+* it is possible to change HUs with other objects than '06' or '12' too
+* for example - '07' hu from repetitive manufactoring
+  IF NOT ( ( gs_header51-object = '01' ) OR
+           ( gs_header51-object = '03' ) ) .
+
+    IF gt_v51vp IS INITIAL.
+
+*   first check
+*   one or more HUs are filled into the fields of the table control
+*   after starting HU02, then PAI is processed
+*   only the lt_xvepo is filled at this moment
+      LOOP AT lt_xvepo INTO wa_vepo WHERE velin = '1'.
+
+        IF wa_vepo_tmp IS INITIAL.
+          wa_vepo_tmp = wa_vepo.
+          CONTINUE.
+        ENDIF.
+
+        IF NOT wa_vepo_tmp IS INITIAL.
+          IF ( wa_vepo_tmp-custord   <> wa_vepo-custord   OR
+               wa_vepo_tmp-custordit <> wa_vepo-custordit OR
+               wa_vepo_tmp-purord    <> wa_vepo-purord    OR
+               wa_vepo_tmp-purordit  <> wa_vepo-purordit  OR
+               wa_vepo_tmp-dlvry     <> wa_vepo-dlvry     OR
+               wa_vepo_tmp-dlvryit   <> wa_vepo-dlvryit ).
+            lf_error = 'X'.
+          ENDIF.
+        ENDIF.
+
+      ENDLOOP.
+
+    ELSE.
+
+*   second check
+*   after processing first dialog step, a material position in gt_v51vp
+*   is generated
+*   now we have to check the new filled in HUs against the references
+*   of the existing material position
+
+*   we only have to read the first position, because all positions in
+*   gt_v51vp must have the same reference
+      READ TABLE gt_v51vp INTO wa_v51vp INDEX 1.
+
+      IF sy-subrc = 0.
+        LOOP AT lt_xvepo INTO wa_vepo WHERE velin = '1'.
+
+          IF ( wa_v51vp-custord   <> wa_vepo-custord   OR
+               wa_v51vp-custordit <> wa_vepo-custordit OR
+               wa_v51vp-purord    <> wa_vepo-purord    OR
+               wa_v51vp-purordit  <> wa_vepo-purordit  OR
+               wa_v51vp-dlvry     <> wa_vepo-dlvry     OR
+               wa_v51vp-dlvryit   <> wa_vepo-dlvryit ).
+            lf_error = 'X'.
+          ENDIF.
+        ENDLOOP.
+      ENDIF.
+
+    ENDIF.
+
+    IF NOT lf_error IS INITIAL.
+      LOOP AT lt_xvekp INTO ls_vekp.
+        DELETE gt_huimseg_old WHERE venum = ls_vekp-venum.
+      ENDLOOP.
+      MESSAGE e235(vhuap) RAISING not_possible.
+    ENDIF.
+
+  ENDIF.
+* DI46C2 - REFERENCE INHERITANCE
+
+  "{ End ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+
+ENHANCEMENT-POINT v51p_add_hu_to_objekt_03 SPOTS es_saplv51p.
+  IF lt_xvekp[] IS INITIAL.
+    IF NOT et_messages IS INITIAL.
+      ef_rcode = 4.
+      EXIT.
+    ELSE.
+      MESSAGE e149(hudialog) RAISING nothing_found.
+    ENDIF.
+  ENDIF.
+  IF gt_xvekp IS INITIAL AND gt_yvekp IS INITIAL.
+    lf_empty = 'X'.
+  ENDIF.
+  LOOP AT lt_handl_un INTO ls_hu.
+    lf_tabix_handl_un = sy-tabix.                           "n_1573088
+*..... find top HU for check ...................
+    READ TABLE lt_xvekp INTO ls_vekp WITH KEY exidv = ls_hu-exidv.
+    CHECK sy-subrc IS INITIAL.
+    REFRESH: lt_hu, lt_hu_items, lt_yvekp, lt_yitems.
+    IF NOT ls_vekp-uevel IS INITIAL.
+      PERFORM search_for_top_hu USING lf_tabix_handl_un     "n_1573088
+                                      lt_xvekp lt_xvepo
+                                CHANGING ls_vekp.
+    ENDIF.
+    IF gs_header51-object = gc_obj_01 OR gs_header51-object = gc_obj_03.
+      CALL FUNCTION 'HU_ENQUEUE'
+        EXPORTING
+          if_with_le   = space
+        CHANGING
+          cs_header    = ls_vekp
+        EXCEPTIONS
+          foreign_lock = 01
+          OTHERS       = 99.
+      IF NOT sy-subrc IS INITIAL.
+        ef_rcode = 4.
+        WRITE ls_vekp-exidv TO lf_msgv1 USING EDIT MASK '==ALPHA'.
+*       message e007(hufunctions) with ls_vekp-exidv.
+        PERFORM set_hu_msg USING    ls_vekp-exidv 'HUFUNCTIONS' 'E'
+                                    '007' lf_msgv1 space space space
+                           CHANGING et_messages.
+        CONTINUE.
+      ENDIF.
+    ENDIF.
+    APPEND ls_vekp TO lt_hu.
+* Prüfen, ob die Zuordnung dieser Handling unit generell erlaubt ist.
+    CLEAR lf_rcode.
+    PERFORM check_if_adding_is_allowed USING    lf_empty ls_vekp
+                                       CHANGING lf_rcode et_messages.
+    IF NOT lf_rcode IS INITIAL.                             "v_n_749212
+      IF gs_header51-object EQ gc_obj_12 OR
+         gs_header51-object EQ gc_obj_05.
+        CALL FUNCTION 'HU_ENQUEUE'
+          EXPORTING
+            if_dequeue   = 'X'
+          CHANGING
+            cs_header    = ls_vekp
+          EXCEPTIONS
+            foreign_lock = 1
+            fatal_error  = 2
+            le_not_found = 3
+            OTHERS       = 4.
+        IF sy-subrc <> 0.
+          MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+          WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+        ENDIF.
+      ENDIF.                                                "^_n_749212
+      ef_rcode = 4.
+      CONTINUE.
+    ENDIF.
+* Aufbauen der Tabellen für eine Handling Unit
+*....... create table for one HU ..........................
+    CALL FUNCTION 'V51F_HU_BREAKUP'
+      EXPORTING
+        it_vekp   = lt_xvekp
+        it_vepo   = lt_xvepo
+      IMPORTING
+        et_items  = lt_hu_items
+      CHANGING
+        ct_header = lt_hu.
+*..... try to match materials items to object items ...........
+*  4 lines deleted by note 749212                               " 749212
+    CALL METHOD gs_badi-main->assignment_check
+      EXPORTING
+        is_header51 = gs_header51
+        is_header   = ls_vekp
+        it_headers  = lt_hu
+        it_items    = lt_hu_items
+      EXCEPTIONS
+        not_allowed = 1
+        OTHERS      = 0.
+    IF NOT sy-subrc IS INITIAL.
+      ef_rcode = 4.
+      ls_mess-msgid = sy-msgid. ls_mess-msgty = sy-msgty.
+      ls_mess-msgno = sy-msgno.
+      ls_mess-msgv1 = sy-msgv1. ls_mess-msgv2 = sy-msgv2.
+      ls_mess-msgv3 = sy-msgv3. ls_mess-msgv4 = sy-msgv4.
+      APPEND ls_mess TO et_messages.
+      CONTINUE.
+    ENDIF.
+    SORT lt_hu_items BY velin venum vepos.
+    SORT lt_hu BY venum.
+* Begin of note 1343458
+* we delete duplicates from the root table as these HUs are already handled
+    LOOP AT lt_hu ASSIGNING <hu_header>.
+      IF NOT <hu_header>-exidv = ls_hu-exidv.
+        READ TABLE lt_handl_un WITH KEY exidv = <hu_header>-exidv
+                                    BINARY SEARCH
+                                    TRANSPORTING NO FIELDS.
+        IF sy-subrc IS INITIAL.
+          DELETE lt_handl_un INDEX sy-tabix.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+* End of note 1343458
+    CASE gs_header51-object.
+*........ delivery ..................
+      WHEN gc_obj_01 OR gc_obj_03.
+        PERFORM match_items CHANGING lt_hu_items lt_hu
+                                     lf_rcode et_messages.
+        IF NOT lf_rcode IS INITIAL.
+          ef_rcode = 4.
+          CONTINUE.
+        ENDIF.
+        ls_history-mandt  = sy-mandt.
+        ls_history-handle = ls_vekp-handle.
+        ls_history-object = gs_header51-object.
+        ls_history-objkey = gs_header51-objkey.
+        GET TIME STAMP FIELD ls_history-tstamp.
+        READ TABLE lt_vevw TRANSPORTING NO FIELDS
+                           WITH KEY handle = ls_history-handle
+                                    object = ls_history-object
+                                    objkey = ls_history-objkey.
+        IF sy-subrc IS INITIAL.
+          lf_vevw_tabix = sy-tabix.
+          READ TABLE lt_vevw INTO ls_vevw INDEX lf_vevw_tabix.
+          IF NOT ls_vevw-updkz = 'I'.
+            APPEND ls_vevw TO lt_yvevw.
+            ls_history-updkz = updkz_update.
+            MODIFY lt_vevw FROM ls_history INDEX lf_vevw_tabix.
+          ENDIF.
+        ELSE.
+          ls_history-updkz = 'I'.
+          APPEND ls_history TO lt_vevw.
+        ENDIF.
+        APPEND LINES OF lt_hu TO lt_yvekp.
+        ls_vekp-vpobj    = gs_header51-object.
+        ls_vekp-vpobjkey = gs_header51-objkey.
+        ls_vekp-updkz    = 'U'.
+        CLEAR: ls_vekp-vbeln_gen, ls_vekp-posnr_gen, ls_vekp-pstyv.
+        MODIFY lt_hu FROM ls_vekp TRANSPORTING pstyv vpobj vpobjkey
+                                              vbeln_gen posnr_gen updkz
+                                  WHERE vpobjkey NE gs_header51-object.
+        LOOP AT lt_hu_items INTO ls_vepo WHERE updkz = updkz_update.
+          READ TABLE lt_xvepo INTO ls_vepo
+                              WITH KEY venum = ls_vepo-venum
+                                       vepos = ls_vepo-vepos.
+          APPEND ls_vepo TO lt_yitems.
+        ENDLOOP.
+        CLEAR: ls_vepo-posnr_gen, ls_vepo-pstyv.
+        MODIFY lt_hu_items FROM ls_vepo TRANSPORTING pstyv posnr_gen
+                           WHERE vbeln NE gs_header51-object.
+        PERFORM add_hu_attributs CHANGING lt_hu lt_hu_items.
+
+        "{ Begin ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+*       DI46C2 - Auto 3.0 - VHU
+*       change plant in header and position of hus, which are delivered
+*       with outbound delivery of predecessing document stock transport
+*       order and now assigned to an inbound delivery in the receiving
+*       plant
+        IF gs_header51-object = '03'.
+          CALL FUNCTION 'VHUUPDHU_MODIFY_HUDATA'
+            EXPORTING
+              it_xvekp  = lt_xvekp
+            CHANGING
+              ct_header = lt_hu
+              ct_item   = lt_hu_items.
+        ENDIF.
+        "{ End ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+
+ENHANCEMENT-POINT v51p_add_hu_to_objekt_04 SPOTS es_saplv51p.
+        PERFORM systemfelder_anpassen CHANGING lt_hu.
+        CALL FUNCTION 'HU_STATUS_SELECT'
+          EXPORTING
+            it_header = lt_hu.
+        IF ls_vekp-aendb IS INITIAL.
+          SORT lt_hu_items BY venum vepos.                  "note 738304
+          CALL FUNCTION 'V51F_HUIMSEG_CREATE'
+            EXPORTING
+              is_header = ls_vekp
+            CHANGING
+              ct_items  = lt_hu_items
+              ct_humseg = gt_huimseg_old.
+        ENDIF.
+        APPEND LINES OF lt_hu TO gt_xvekp.
+        APPEND LINES OF lt_hu_items TO gt_xvepo.
+        APPEND LINES OF lt_yvekp TO gt_yvekp.
+        APPEND LINES OF lt_yitems TO gt_yvepo.
+        LOOP AT lt_hu_items INTO ls_vepo WHERE updkz NE space AND
+                                               updkz NE 'I'.
+          READ TABLE lt_xvepo INTO ls_vepo
+                              WITH KEY venum = ls_vepo-venum
+                                       vepos = ls_vepo-vepos.
+          IF NOT sy-subrc IS INITIAL.
+            CLEAR ls_vepo-updkz.
+          ENDIF.
+          READ TABLE gt_yvepo TRANSPORTING NO FIELDS
+                              WITH KEY venum = ls_vepo-venum
+                                       vepos = ls_vepo-vepos
+                              BINARY SEARCH.
+          CASE sy-subrc.
+            WHEN 4. INSERT ls_vepo INTO gt_yvepo INDEX sy-tabix.
+            WHEN 8. APPEND ls_vepo TO gt_yvepo.
+          ENDCASE.
+        ENDLOOP.
+        SORT lt_hu_items BY vepos DESCENDING.
+        READ TABLE lt_hu_items INTO ls_vepo INDEX 1
+                               TRANSPORTING vepos.
+        IF ls_vepo-vepos > gs_header51-vepos_high.
+          gs_header51-vepos_high = ls_vepo-vepos.
+        ENDIF.
+        LOOP AT lt_vevw INTO ls_history WHERE handle = ls_vekp-handle.
+          APPEND ls_history TO gt_vevw.
+          IF ls_history-object = gc_obj_ump.
+            APPEND ls_history TO lt_umpack.
+          ENDIF.
+        ENDLOOP.
+        CLEAR: lf_empty.
+      WHEN gc_obj_12.
+        IF ls_vekp-vpobj = gc_obj_12 OR ls_vekp-vpobj = gc_obj_05 OR
+           ls_vekp-vpobj = gc_obj_08 OR ls_vekp-vpobj = gc_obj_06.
+          IF ls_vekp-aendb IS INITIAL.
+            SORT lt_hu_items BY venum vepos.                "note 738304
+            CALL FUNCTION 'V51F_HUIMSEG_CREATE'
+              EXPORTING
+                is_header = ls_vekp
+              CHANGING
+                ct_items  = lt_hu_items
+                ct_humseg = gt_huimseg_old.
+          ENDIF.
+          APPEND LINES OF lt_hu TO lt_free_hus.
+          APPEND LINES OF lt_hu_items TO lt_free_items.
+        ELSE.
+          LOOP AT lt_hu INTO ls_vekp.
+            DELETE gt_huimseg_old WHERE venum = ls_vekp-venum.
+          ENDLOOP.
+        ENDIF.
+      WHEN gc_obj_09 OR gc_obj_07 OR gc_obj_08.
+        CHECK ls_vekp-vpobj = gc_obj_06 OR ls_vekp-vpobj = gc_obj_08 OR
+              ls_vekp-vpobj = gc_obj_09 OR ls_vekp-vpobj = gc_obj_07.
+        "sonst war doch die Prüfung falsch!
+        CHECK ls_vekp-hu_lgort CA ' A'.
+* gt_huimseg_old wird nicht aufgebaut, da ohne Bestand!
+        APPEND LINES OF lt_hu TO lt_free_hus.
+        APPEND LINES OF lt_hu_items TO lt_free_items.
+        CLEAR: lf_empty.
+      WHEN OTHERS.
+* ???
+    ENDCASE.
+    lf_success = charx.
+  ENDLOOP.
+
+  CHECK NOT lf_success IS INITIAL.
+  IF gs_header51-object = gc_obj_06 OR gs_header51-object = gc_obj_12 OR
+     gs_header51-object = gc_obj_07 OR gs_header51-object = gc_obj_09 OR
+     gs_header51-object = gc_obj_08 OR gs_header51-object = gc_obj_05.
+    lf_dont_check = charx.
+    CALL FUNCTION 'V51P_CREATE_V51VP_FROM_VEPO'
+      EXPORTING
+        if_dont_check    = lf_dont_check
+      CHANGING
+        ct_vepo          = lt_free_items
+      EXCEPTIONS
+        no_global_object = 01
+        error            = 02
+        OTHERS           = 99.
+    IF NOT sy-subrc IS INITIAL.
+      RAISE fatal_error.
+    ENDIF.
+    SORT lt_free_items DESCENDING.
+    READ TABLE lt_free_items INTO ls_vepo INDEX 1 TRANSPORTING vepos.
+    IF ls_vepo-vepos > gs_header51-vepos_high.
+      gs_header51-vepos_high = ls_vepo-vepos.
+    ENDIF.
+    CALL FUNCTION 'HU_STATUS_SELECT'
+      EXPORTING
+        it_header = lt_free_hus.
+    APPEND LINES OF lt_free_hus TO gt_xvekp.
+    APPEND LINES OF lt_free_items TO gt_xvepo.
+    APPEND LINES OF lt_vevw TO gt_vevw.
+  ELSE.
+    IF NOT lt_umpack[] IS INITIAL.
+      SORT lt_umpack.
+      DELETE ADJACENT DUPLICATES FROM lt_umpack
+                                 COMPARING handle object objkey.
+      LOOP AT lt_umpack INTO ls_history.
+        LOOP AT lt_vevw INTO ls_vevw WHERE objkey = ls_history-objkey
+                                   AND NOT handle = ls_history-handle
+                                   AND     object = gc_obj_ump.
+          APPEND ls_vevw TO gt_vevw.
+        ENDLOOP.
+      ENDLOOP.
+      SORT lt_vevw.
+      DELETE ADJACENT DUPLICATES FROM lt_vevw
+                                 COMPARING handle object objkey.
+    ENDIF.
+  ENDIF.
+  SORT gt_xvekp BY venum.
+  SORT gt_xvepo BY venum vepos.
+  SORT gt_v51vp BY vbeln posnr.
+  SORT gt_yvekp BY venum.
+  SORT gt_yvepo BY venum vepos.
+* sort gt_vevw by handle ascending tstamp descending.
+  SORT gt_vevw BY handle object objkey.
+  SORT gt_yvevw BY handle.
+
+  "{ Begin ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+* Automotive 2.0 Löschen von HU-Referenzen, wenn Lieferung zugeordnet
+* wird.
+
+* only if we build a delivery and there are HU
+  IF gs_header51-object = gc_obj_01  AND  "es ist die Lieferung gemeint
+     NOT lt_xvekp IS INITIAL.
+
+*   check for dlvy type and aufer = 'LO' or 'LF' deleted      "SP_565666
+*   because it's valid for other dlv types as well (NL, ...)
+
+*   get all internal IDs of HUs
+    LOOP AT lt_xvekp INTO wa_hu.
+      wa_venum-venum = wa_hu-venum.
+      COLLECT wa_venum INTO lt_venums.
+    ENDLOOP.
+
+*   delete HURES for HUs
+    CALL FUNCTION 'VHUREF_DELETE_HURES'
+      EXPORTING
+        it_venum        = lt_venums
+      EXCEPTIONS
+        reference_error = 1
+        OTHERS          = 99.
+    IF sy-subrc <> 0.
+      MESSAGE ID   sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+              RAISING fatal_error.
+    ENDIF.
+  ENDIF.
+
+  "{ End ENHO AUTO_VHU_PO_V51P_ADD_HU_TO_000 IS-A-HUM AM_HUM }
+
+ENHANCEMENT-POINT v51p_add_hu_to_objekt_05 SPOTS es_saplv51p.
+ENDFUNCTION.                                             "#EC CI_VALPAR
+*&---------------------------------------------------------------------*
+*&      Form  MATCH_ITEMS
+*&---------------------------------------------------------------------*
+*       gelesenen vepo-Positionen mit v51vp abmischen
+*----------------------------------------------------------------------*
+FORM match_items CHANGING ct_vepo TYPE vsep_t_vepo
+                          ct_vekp TYPE vsep_t_vekp
+                          ef_rcode TYPE sy-subrc
+                          et_messages TYPE huitem_messages_t.
+  DATA: ls_vepo        TYPE vepovb, ls_v51vp TYPE v51vp, ls_vekp TYPE vekpvb,
+        lf_tabix_v51vp TYPE sy-tabix, lf_tabix_vepo TYPE sy-tabix,
+        lf_tmeng       TYPE v51vp-opmng, ls_item TYPE vepovb,
+        lf_hulgort     TYPE xfeld, lf_msgv1 TYPE symsgv,
+        lf_msgv2       TYPE symsgv, lf_msgv3 TYPE symsgv,
+        lf_msgv4       TYPE symsgv, lf_vemng TYPE vemng,
+        lf_vemng_bum   TYPE vemng,                          "SP_589338
+        lf_vemngf      TYPE lgmng_flo, lf_sys TYPE humsys,  "HP_388256
+        lf_tmeng_bum   TYPE opmng,                          "SP_651835
+        lf_pack_base   TYPE xfeld,
+        lf_uom_select  TYPE char1.                          "n_1226086
+
+  DATA: lt_mesg      TYPE smesg OCCURS 0, ls_mesg TYPE smesg,
+        ls_bstch     TYPE bsinf, ls_bstup TYPE bsinf,
+        lf_zeilen_id TYPE mesg-zeile,
+        lf_status    TYPE char1, lf_vorgang LIKE tj01-vrgng.
+  LOG-POINT ID /cwm/enh SUBKEY to_upper( sy-tcode && '\/CWM/APPL_HU_SAPLV51P\EHP600_MATCH_ITEMS_01\' && sy-cprog ) FIELDS /cwm/cl_enh_layer=>get_field( ).
+* CWM-declaration of additional CWM-fields  1654784
+  DATA: lv_/cwm/vemng     TYPE /cwm/vemng,
+        lv_/cwm/tmeng     TYPE /cwm/tmeng,
+        lv_/cwm/ratio     TYPE vemng,
+        lv_/cwm/partmng   TYPE /cwm/vemng,
+        lv_/cwm/remainmng TYPE /cwm/vemng,
+        lv_/cwm/packed    TYPE /cwm/vemng.
+
+* Description for CWM Logic
+* a) the LOOP over CT_VEPO
+*    --> determine of the corresponding GT_V51VP records
+*    --> update of the packed quantity in CT_VEPO
+*    --> update of the packed quantity  and SELKZ in GT_V51VP
+* b) the subsequent LOOP over GT_V51VP
+*    --> adjust the remaining quantity fields
+*        OPMNG, TMENG, GSMNG
+*    --> Clear the packed quantity fields
+* CWM                                       1654784
+ENHANCEMENT-POINT ehp600_match_items_01 SPOTS es_saplv51p STATIC .
+
+  FIELD-SYMBOLS: <header> TYPE vekpvb, <v51vp> TYPE v51vp,
+                 <item>   TYPE vepovb.                      " Note 557248
+
+  CALL FUNCTION 'HU_GET_CALC_TYPE'                           "SP_651835
+    IMPORTING
+      ef_pack_base = lf_uom_select.                           "n_1226086
+
+  READ TABLE ct_vekp ASSIGNING <header> INDEX 1.
+  CASE <header>-hu_lgort.
+    WHEN 'C' OR 'D' OR charx.
+      lf_hulgort = 'X'.
+    WHEN OTHERS.
+      lf_hulgort = 'N'.
+  ENDCASE.
+*<<<< begin of insert HP_388256 >>>>>>>>>>>>>>>>>>>>>>>
+  CASE gs_header51-object.
+    WHEN gc_obj_01.
+      lf_sys = 'A'.
+    WHEN gc_obj_03.
+      lf_sys = 'Z'.
+  ENDCASE.
+*<<<<< end of insert HP_388256 >>>>>>>>>>>>>>>>>>>>>>>>>
+*........ clear pakmg and selkz ........................
+  MODIFY gt_v51vp FROM ls_v51vp TRANSPORTING pakmg selkz
+                                             pakmg_bum      "SP_605703
+                                WHERE pakmg NE space OR
+                                      selkz NE space OR
+                                      pakmg_bum NE space.
+  LOOP AT ct_vepo INTO ls_vepo WHERE velin = '1'.
+    CLEAR lf_tabix_v51vp.
+    ls_item = ls_vepo.
+    lf_tabix_vepo = sy-tabix.
+    IF ls_vepo-venum <> <header>-venum.                     "note 759532
+      READ TABLE ct_vekp ASSIGNING <header>
+                         WITH KEY venum = ls_vepo-venum
+                         BINARY SEARCH.
+    ENDIF.
+    CASE lf_hulgort.
+      WHEN space.
+        LOOP AT gt_v51vp INTO ls_v51vp WHERE matnr = ls_vepo-matnr AND
+                                             charg = ls_vepo-charg AND
+                                             hu_lgort = space AND
+                                             opmng    > 0 AND
+                                             hu_system NE lf_sys AND
+                                             selkz = space.
+          IF ls_vepo-qplos IS INITIAL.                      "n_986088
+            ls_item-qplos = ls_vepo-qplos = ls_v51vp-qplos.
+          ELSEIF ls_item-qplos NE ls_v51vp-qplos AND
+                             NOT ls_v51vp-qplos IS INITIAL.
+            CONTINUE.
+          ENDIF.
+          lf_tabix_v51vp = sy-tabix.
+          ls_item-hu_lgort = ls_v51vp-hu_lgort.
+          ls_item-werks    = ls_v51vp-werks.
+          ls_item-lgort    = ls_v51vp-lgort.
+          ls_item-sobkz    = ls_v51vp-sobkz.
+          ls_item-sonum    = ls_v51vp-sonum.
+          ls_item-bestq    = ls_v51vp-bestq.
+*          ls_item-qplos    = ls_v51vp-qplos.                  "n_986088
+          ls_item-lgnum    = ls_v51vp-lgnum.
+*<<<<<<< begin of insert HP_334895 >>>>>>>>>>>>>>>>
+          ls_vepo-hu_lgort = ls_v51vp-hu_lgort.
+          ls_vepo-werks    = ls_v51vp-werks.
+          ls_vepo-lgort    = ls_v51vp-lgort.
+          ls_vepo-sobkz    = ls_v51vp-sobkz.
+          ls_vepo-sonum    = ls_v51vp-sonum.
+          ls_vepo-bestq    = ls_v51vp-bestq.
+*          ls_vepo-qplos    = ls_v51vp-qplos.                  "n_986088
+          ls_vepo-lgnum    = ls_v51vp-lgnum.
+*<<<<<<< end of insert HP_334895 >>>>>>>>>>>>>>>>
+          EXIT.
+        ENDLOOP.
+*<<<<<<< begin of insert HP_359441 >>>>>>>>>>>>>>>>>>>>>>>>>>
+        IF NOT sy-subrc IS INITIAL.
+          LOOP AT gt_v51vp INTO ls_v51vp WHERE matnr = ls_vepo-matnr AND
+                                               hu_lgort = space AND
+                                               opmng    > 0 AND
+                                               hu_system NE lf_sys AND
+                                               selkz = space.
+            IF ls_vepo-qplos IS INITIAL.                    "n_986088
+              ls_item-qplos = ls_vepo-qplos = ls_v51vp-qplos.
+            ELSEIF ls_item-qplos NE ls_v51vp-qplos AND
+                               NOT ls_v51vp-qplos IS INITIAL.
+              CONTINUE.
+            ENDIF.
+            lf_tabix_v51vp = sy-tabix.
+            IF ls_v51vp-charg <> ls_vepo-charg.
+* keine Materialposition mit dieser Charge vorhanden
+              PERFORM set_hu_msg USING <header>-exidv 'HUDIALOG' 'I'
+                                       '206' space space space space
+                                 CHANGING et_messages.
+            ENDIF.
+            ls_item-hu_lgort = ls_v51vp-hu_lgort.
+            ls_item-werks    = ls_v51vp-werks.
+            ls_item-lgort    = ls_v51vp-lgort.
+            ls_item-sobkz    = ls_v51vp-sobkz.
+            ls_item-sonum    = ls_v51vp-sonum.
+            ls_item-bestq    = ls_v51vp-bestq.
+*            ls_item-qplos    = ls_v51vp-qplos.                "n_986088
+            ls_item-lgnum    = ls_v51vp-lgnum.
+            ls_vepo-hu_lgort = ls_v51vp-hu_lgort.
+            ls_vepo-werks    = ls_v51vp-werks.
+            ls_vepo-lgort    = ls_v51vp-lgort.
+            ls_vepo-sobkz    = ls_v51vp-sobkz.
+            ls_vepo-sonum    = ls_v51vp-sonum.
+            ls_vepo-bestq    = ls_v51vp-bestq.
+*            ls_vepo-qplos    = ls_v51vp-qplos.                "n_986088
+            ls_vepo-lgnum    = ls_v51vp-lgnum.
+            EXIT.
+          ENDLOOP.
+        ENDIF.
+*<<<<<<< end   of insert HP_359441 >>>>>>>>>>>>>>>>>>>>>>>>>>
+      WHEN 'A'.
+*..... find possible materials ................
+        LOOP AT gt_v51vp INTO ls_v51vp WHERE matnr = ls_vepo-matnr AND
+                                             charg = ls_vepo-charg AND
+                                             hu_lgort = 'A'  AND
+                                             opmng > 0 AND
+                                             hu_system NE lf_sys AND
+                                             selkz = space.
+
+          IF ls_vepo-qplos IS INITIAL.                      "n_986088
+            ls_item-qplos = ls_vepo-qplos = ls_v51vp-qplos.
+          ELSEIF ls_item-qplos NE ls_v51vp-qplos AND
+                             NOT ls_v51vp-qplos IS INITIAL.
+            CONTINUE.
+          ENDIF.
+          lf_tabix_v51vp = sy-tabix.
+          ls_item-hu_lgort = ls_v51vp-hu_lgort.
+          ls_item-werks    = ls_v51vp-werks.
+          ls_item-lgort    = ls_v51vp-lgort.
+          ls_item-sobkz    = ls_v51vp-sobkz.
+          ls_item-sonum    = ls_v51vp-sonum.
+          ls_item-bestq    = ls_v51vp-bestq.
+*          ls_item-qplos    = ls_v51vp-qplos.                  "n_986088
+          ls_item-lgnum    = ls_v51vp-lgnum.
+*<<<<<<< begin of insert HP_334895 >>>>>>>>>>>>>>>>
+          ls_vepo-hu_lgort = ls_v51vp-hu_lgort.
+          ls_vepo-werks    = ls_v51vp-werks.
+          ls_vepo-lgort    = ls_v51vp-lgort.
+          ls_vepo-sobkz    = ls_v51vp-sobkz.
+          ls_vepo-sonum    = ls_v51vp-sonum.
+          ls_vepo-bestq    = ls_v51vp-bestq.
+*          ls_vepo-qplos    = ls_v51vp-qplos.                  "n_986088
+          ls_vepo-lgnum    = ls_v51vp-lgnum.
+*<<<<<<< end of insert HP_334895 >>>>>>>>>>>>>>>>
+          EXIT.
+        ENDLOOP.
+*<<<<<<< begin of insert HP_359441 >>>>>>>>>>>>>>>>>>>>>>>>>>
+        IF NOT sy-subrc IS INITIAL.
+          LOOP AT gt_v51vp INTO ls_v51vp WHERE matnr = ls_vepo-matnr AND
+                                               hu_lgort = 'A'  AND
+                                               opmng > 0 AND
+                                               hu_system NE lf_sys AND
+                                               selkz = space.
+
+            IF ls_vepo-qplos IS INITIAL.                    "n_986088
+              ls_item-qplos = ls_vepo-qplos = ls_v51vp-qplos.
+            ELSEIF ls_item-qplos NE ls_v51vp-qplos AND
+                               NOT ls_v51vp-qplos IS INITIAL.
+              CONTINUE.
+            ENDIF.
+            lf_tabix_v51vp = sy-tabix.
+            IF ls_v51vp-charg <> ls_vepo-charg.
+* keine Materialposition mit dieser Charge vorhanden
+              PERFORM set_hu_msg USING <header>-exidv 'HUDIALOG' 'I'
+                                       '206' space space space space
+                                 CHANGING et_messages.
+            ENDIF.
+            ls_item-hu_lgort = ls_v51vp-hu_lgort.
+            ls_item-werks    = ls_v51vp-werks.
+            ls_item-lgort    = ls_v51vp-lgort.
+            ls_item-sobkz    = ls_v51vp-sobkz.
+            ls_item-sonum    = ls_v51vp-sonum.
+            ls_item-bestq    = ls_v51vp-bestq.
+*            ls_item-qplos    = ls_v51vp-qplos.                "n_986088
+            ls_item-lgnum    = ls_v51vp-lgnum.
+            ls_vepo-hu_lgort = ls_v51vp-hu_lgort.
+            ls_vepo-werks    = ls_v51vp-werks.
+            ls_vepo-lgort    = ls_v51vp-lgort.
+            ls_vepo-sobkz    = ls_v51vp-sobkz.
+            ls_vepo-sonum    = ls_v51vp-sonum.
+            ls_vepo-bestq    = ls_v51vp-bestq.
+*            ls_vepo-qplos    = ls_v51vp-qplos.                "n_986088
+            ls_vepo-lgnum    = ls_v51vp-lgnum.
+            EXIT.
+          ENDLOOP.
+        ENDIF.
+*<<<<<<< end   of insert HP_359441 >>>>>>>>>>>>>>>>>>>>>>>>>>
+      WHEN 'D'.
+        LOOP AT gt_v51vp INTO ls_v51vp WHERE matnr = ls_vepo-matnr AND
+                                             charg = ls_vepo-charg AND
+                                             werks = ls_vepo-werks AND
+                                             lgort = ls_vepo-lgort AND
+                                             bestq = ls_vepo-bestq AND
+                                             sobkz = ls_vepo-sobkz AND
+                                             sonum = ls_vepo-sonum AND
+                                             opmng > 0 AND
+                                             hu_lgort = 'D' AND
+                                             hu_system NE lf_sys AND
+                                             selkz IS INITIAL.
+          lf_tabix_v51vp = sy-tabix.
+          ls_vepo-hu_lgort = ls_v51vp-hu_lgort.
+          ls_vepo-lgnum    = ls_v51vp-lgnum.
+          ls_item-hu_lgort = ls_v51vp-hu_lgort.             "HP_334895
+          ls_item-lgnum    = ls_v51vp-lgnum.                "HP_334895
+          EXIT.
+        ENDLOOP.
+      WHEN 'X' OR 'C'.
+        LOOP AT gt_v51vp INTO ls_v51vp WHERE matnr = ls_vepo-matnr AND
+                                             charg = ls_vepo-charg AND
+                                             werks = ls_vepo-werks AND
+                                             lgort = ls_vepo-lgort AND
+                                             bestq = ls_vepo-bestq AND
+                                             sobkz = ls_vepo-sobkz AND
+                                             sonum = ls_vepo-sonum AND
+                                             opmng > 0 AND
+                                             hu_lgort CA 'CD' AND
+                                             hu_system NE lf_sys AND
+                                             selkz = space.
+          IF ls_vepo-qplos IS INITIAL.
+            ls_item-qplos = ls_vepo-qplos = ls_v51vp-qplos.
+          ELSEIF ls_item-qplos NE ls_v51vp-qplos AND        "n_986088
+                               NOT ls_v51vp-qplos IS INITIAL. "n_986088
+            CONTINUE.                                       "n_986088
+          ENDIF.
+          lf_tabix_v51vp = sy-tabix.
+          lf_hulgort = ls_v51vp-hu_lgort.
+          ls_vepo-hu_lgort = ls_v51vp-hu_lgort.
+          ls_vepo-lgnum    = ls_v51vp-lgnum.
+          ls_item-hu_lgort = ls_v51vp-hu_lgort.             "HP_334895
+          ls_item-lgnum    = ls_v51vp-lgnum.                "HP_334895
+          EXIT.
+        ENDLOOP.
+      WHEN 'N'.
+        LOOP AT gt_v51vp INTO ls_v51vp WHERE matnr = ls_vepo-matnr AND
+                                             charg = ls_vepo-charg AND
+                                             opmng > 0 AND
+                                             hu_lgort CN 'CD' AND
+                                             hu_system NE lf_sys AND
+                                             selkz = space.
+          IF ls_vepo-qplos IS INITIAL.
+            ls_item-qplos = ls_vepo-qplos = ls_v51vp-qplos.
+          ELSEIF ls_item-qplos NE ls_v51vp-qplos AND        "n_986088
+                               NOT ls_v51vp-qplos IS INITIAL. "n_986088
+            CONTINUE.                                       "n_986088
+          ENDIF.
+          lf_tabix_v51vp   = sy-tabix.
+          lf_hulgort       = ls_v51vp-hu_lgort.
+          ls_item-hu_lgort = ls_v51vp-hu_lgort.
+          ls_item-werks    = ls_v51vp-werks.
+          ls_item-lgort    = ls_v51vp-lgort.
+          ls_item-sobkz    = ls_v51vp-sobkz.
+          ls_item-sonum    = ls_v51vp-sonum.
+          ls_item-bestq    = ls_v51vp-bestq.
+          ls_item-lgnum    = ls_v51vp-lgnum.
+*<<<<<<< begin of insert HP_334895 >>>>>>>>>>>>>>>>
+          ls_vepo-hu_lgort = ls_v51vp-hu_lgort.
+          ls_vepo-werks    = ls_v51vp-werks.
+          ls_vepo-lgort    = ls_v51vp-lgort.
+          ls_vepo-sobkz    = ls_v51vp-sobkz.
+          ls_vepo-sonum    = ls_v51vp-sonum.
+          ls_vepo-bestq    = ls_v51vp-bestq.
+          ls_vepo-lgnum    = ls_v51vp-lgnum.
+*<<<<<<< end of insert HP_334895 >>>>>>>>>>>>>>>>
+          EXIT.
+        ENDLOOP.
+*<<<<<<< begin of insert HP_359441 >>>>>>>>>>>>>>>>>>>>>>>>>>
+        IF NOT sy-subrc IS INITIAL.
+          LOOP AT gt_v51vp INTO ls_v51vp WHERE matnr = ls_vepo-matnr AND
+                                               opmng > 0 AND
+                                               hu_lgort CN 'CD' AND
+                                               hu_system NE lf_sys AND
+                                               selkz = space.
+            lf_tabix_v51vp   = sy-tabix.                    "n_811572
+            IF ls_v51vp-charg <> ls_vepo-charg.
+* keine Materialposition mit dieser Charge vorhanden
+              PERFORM set_hu_msg USING <header>-exidv 'HUDIALOG' 'I'
+                                       '206' space space space space
+                                 CHANGING et_messages.
+            ENDIF.
+            IF ls_vepo-qplos IS INITIAL.
+              ls_item-qplos = ls_vepo-qplos = ls_v51vp-qplos.
+            ELSEIF ls_item-qplos NE ls_v51vp-qplos AND      "n_986088
+                               NOT ls_v51vp-qplos IS INITIAL. "n_986088
+              CONTINUE.                                     "n_986088
+            ENDIF.
+            lf_hulgort       = ls_v51vp-hu_lgort.
+            ls_item-hu_lgort = ls_v51vp-hu_lgort.
+            ls_item-werks    = ls_v51vp-werks.
+            ls_item-lgort    = ls_v51vp-lgort.
+            ls_item-sobkz    = ls_v51vp-sobkz.
+            ls_item-sonum    = ls_v51vp-sonum.
+            ls_item-bestq    = ls_v51vp-bestq.
+            ls_item-lgnum    = ls_v51vp-lgnum.
+            ls_vepo-hu_lgort = ls_v51vp-hu_lgort.
+            ls_vepo-werks    = ls_v51vp-werks.
+            ls_vepo-lgort    = ls_v51vp-lgort.
+            ls_vepo-sobkz    = ls_v51vp-sobkz.
+            ls_vepo-sonum    = ls_v51vp-sonum.
+            ls_vepo-bestq    = ls_v51vp-bestq.
+            ls_vepo-lgnum    = ls_v51vp-lgnum.
+            EXIT.
+          ENDLOOP.
+        ENDIF.
+*<<<<<<< end   of insert HP_359441 >>>>>>>>>>>>>>>>>>>>>>>>>>
+    ENDCASE.
+*..........one more status check for inbound deliveries ..........
+    IF gs_header51-object = gc_obj_03.
+      IF ls_v51vp-hu_lgort CA 'CD'.
+        IF <header>-status = gc_realisiert OR
+           <header>-status = gc_geplant.
+*         message i138(hudialog).
+          lf_msgv1 = <header>-exidv.
+          lf_msgv2 = <header>-status.
+          PERFORM set_hu_msg USING <header>-exidv 'HUDIALOG' 'I' '138'
+                                   lf_msgv1 lf_msgv2 space space
+                             CHANGING et_messages.
+          ef_rcode = 4.
+          EXIT.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+*..........  check quantity ...................
+    IF NOT lf_tabix_v51vp IS INITIAL.
+      IF ls_v51vp-serail NE ls_item-serail                  "v_n_1148820
+        AND lf_hulgort CN 'CDX'
+        AND gs_header51-object = gc_obj_03
+        AND gs_header51-posting_change IS INITIAL.
+*        AND <header>-status = GC_WA or <header>-status = GC_TRANSIT.
+*  No SNs Profile => clear ANZSN and object list
+        IF ls_v51vp-serail IS INITIAL.
+          CALL FUNCTION 'MESSAGES_INITIALIZE'.
+          ls_bstch-b_relev = charx.
+          lf_vorgang = 'PMTB'.
+          CALL FUNCTION 'DELETE_SERNR_HU'
+            EXPORTING
+              venum              = ls_vepo-venum
+              vepos              = ls_vepo-vepos
+              j_vorgang          = lf_vorgang
+              bstch              = ls_bstch
+              bstup              = ls_bstup
+              profile            = ls_vepo-serail
+              budat              = sy-datlo
+            IMPORTING
+              anzsn              = ls_vepo-anzsn
+              zeilen_id          = lf_zeilen_id
+              status_not_allowed = lf_status.
+          IF NOT lf_status IS INITIAL.
+            IF lf_zeilen_id IS INITIAL.
+*              MESSAGE E068(HUGENERAL).
+              PERFORM set_hu_msg USING <header>-exidv
+                                       'HUGENERAL' 'E' '068'
+                                       space space space space
+                                 CHANGING et_messages.
+            ELSE.
+              CALL FUNCTION 'MESSAGES_GIVE'
+                EXPORTING
+                  i_zeile = lf_zeilen_id
+                TABLES
+                  t_mesg  = lt_mesg.
+              READ TABLE lt_mesg INTO ls_mesg INDEX 1.
+              IF sy-subrc IS INITIAL.
+                sy-msgid = ls_mesg-arbgb.
+                sy-msgty = ls_mesg-msgty.
+                sy-msgno = ls_mesg-txtnr.
+                PERFORM set_hu_msg USING <header>-exidv sy-msgid
+                                         sy-msgty sy-msgno
+                                         ls_mesg-msgv1 ls_mesg-msgv2
+                                         ls_mesg-msgv3 ls_mesg-msgv4
+                                   CHANGING et_messages.
+              ELSE.
+*              MESSAGE E068(HUGENERAL).
+                PERFORM set_hu_msg USING <header>-exidv
+                                         'HUGENERAL' 'E' '068'
+                                         space space space space
+                                   CHANGING et_messages.
+              ENDIF.
+            ENDIF.
+            ef_rcode = 4.
+            EXIT.
+          ENDIF.
+          ls_item-anzsn = ls_vepo-anzsn.
+        ENDIF.
+        ls_item-serail = ls_vepo-serail = ls_v51vp-serail.
+        ls_item-serpfl = ls_vepo-serpfl = ls_v51vp-serpfl.
+      ENDIF.                                                "^_n_1148820
+      IF NOT ls_vepo-vemeh = ls_v51vp-meins.
+        PERFORM mengen_umrechnen CHANGING ls_vepo-vemng
+                                          ls_vepo-vemng_flo ls_v51vp.
+      ENDIF.
+      lf_vemng_bum = lf_vemng = ls_vepo-vemng.              "SP_589338
+      lf_vemngf = ls_vepo-vemng_flo.
+      IF NOT ls_v51vp-vrkme = ls_v51vp-meins.
+*        perform mengen_umrechnen changing lf_vemng lf_vemngf ls_v51vp.
+        lf_vemngf = lf_vemngf * ls_v51vp-umvkn / ls_v51vp-umvkz.
+        lf_vemng  = lf_vemngf.
+      ENDIF.
+      lf_tmeng = ls_v51vp-opmng - ls_v51vp-pakmg.
+      lf_tmeng_bum = ls_v51vp-opmng_bum - ls_v51vp-pakmg_bum. "SP_651835
+      LOG-POINT ID /cwm/enh SUBKEY to_upper( sy-tcode && '\/CWM/APPL_HU_SAPLV51P\EHP600_MATCH_ITEMS_02\' && sy-cprog ) FIELDS /cwm/cl_enh_layer=>get_field( ).
+* CWM                                                       1654784
+*     lf_vemng contains the VEPO-rest to be assigned
+*     lf_tmeng contains the item-quantity
+*     determine ratio based on the ratio in logistic UoM
+      IF lf_vemng > lf_tmeng.
+        lv_/cwm/ratio = lf_tmeng / lf_vemng.
+      ELSE.
+        lv_/cwm/ratio = 1.
+      ENDIF.
+*     already packed
+*      - ls_v51vp-/cwm/opmng is emty at a new call (though it is correctly filled
+*        at the end of this FORM-routine) --> so changed to tmeng
+      IF ls_v51vp-/cwm/tmeng <> 0.
+        lv_/cwm/packed = ls_v51vp-/cwm/gsmng - ls_v51vp-/cwm/tmeng.
+      ELSE.
+        lv_/cwm/packed = 0.
+      ENDIF.
+*     VEPO quantity
+      lv_/cwm/vemng = ls_vepo-/cwm/vemng.
+*     issue: /CWM/opmng is 0 so it has to be set first with the remaining
+*            quantity (workaround)
+      IF ls_v51vp-/cwm/opmng = 0 AND ls_v51vp-opmng <> 0.
+        IF ls_v51vp-/cwm/tmeng <> 0.
+          ls_v51vp-/cwm/opmng = ls_v51vp-/cwm/tmeng.
+        ENDIF.
+        IF ls_v51vp-/cwm/opmng = 0 AND ls_v51vp-/cwm/gsmng <> 0.
+          ls_v51vp-/cwm/opmng = ls_v51vp-/cwm/gsmng.
+        ENDIF.
+      ENDIF.
+*     this is the remaining quantity of the open quantity and the already
+*     packed quantity of GT_V51VP (delivery)
+      lv_/cwm/tmeng = ls_v51vp-/cwm/opmng - ls_v51vp-/cwm/pakmg.
+*     determine the part and the remaining quantity of the VEPO-quantity
+      lv_/cwm/partmng = ls_vepo-/cwm/vemng * lv_/cwm/ratio.
+      lv_/cwm/remainmng = ls_vepo-/cwm/vemng - lv_/cwm/partmng.
+* CWM                                                      1654784
+ENHANCEMENT-POINT ehp600_match_items_02 SPOTS es_saplv51p .
+      IF ( ls_v51vp-lgort NE ls_vepo-lgort OR
+         ls_v51vp-werks NE ls_vepo-werks ) AND lf_hulgort IS INITIAL.
+        lf_msgv1 = <header>-exidv.
+*       message i158(hudialog).
+        PERFORM set_hu_msg USING <header>-exidv 'HUDIALOG' 'I' '158'
+                                 lf_msgv1 space space space
+                           CHANGING et_messages.
+      ENDIF.
+
+* Determine UOM for packing                                 "v_n_1226086
+      CASE lf_uom_select.
+        WHEN 'A'.
+          PERFORM unit_choose USING    ls_v51vp
+                              CHANGING lf_pack_base.
+        WHEN 'X'.
+          lf_pack_base = c_true.
+        WHEN OTHERS.
+          lf_pack_base = space.
+      ENDCASE.                                              "^_n_1226086
+
+*      if not ls_vepo-vemng > lf_tmeng.
+*        ls_v51vp-tmeng = ls_v51vp-tmeng - ls_vepo-vemng.
+*        if ls_v51vp-tmeng < 0. ls_v51vp-tmeng = 0. endif.
+*        ls_v51vp-pakmg = ls_v51vp-pakmg + ls_vepo-vemng.
+      IF ( NOT lf_vemng > lf_tmeng AND lf_pack_base IS INITIAL ) OR
+         ( NOT lf_vemng_bum > lf_tmeng_bum AND
+           NOT lf_pack_base IS INITIAL ).                   "SP_651835
+        ls_v51vp-tmeng = ls_v51vp-tmeng - lf_vemng.
+        IF ls_v51vp-tmeng < 0. ls_v51vp-tmeng = 0. ENDIF.
+        ls_v51vp-pakmg = ls_v51vp-pakmg + lf_vemng.
+        ls_v51vp-pakmg_bum = ls_v51vp-pakmg_bum + lf_vemng_bum. "589338
+        lf_tmeng = ls_v51vp-opmng - ls_v51vp-pakmg.
+        lf_tmeng_bum = ls_v51vp-opmng_bum - ls_v51vp-pakmg_bum.   "n_v_2277139
+        IF lf_pack_base IS INITIAL.
+          IF lf_tmeng <= 0.
+            ls_v51vp-selkz = charx.
+          ENDIF.
+        ELSE.
+          IF lf_tmeng_bum <= 0.
+            ls_v51vp-selkz = charx.
+          ENDIF.
+        ENDIF.                                                    "n_^_2277139
+        LOG-POINT ID /cwm/enh SUBKEY to_upper( sy-tcode && '\/CWM/APPL_HU_SAPLV51P\EHP600_MATCH_ITEMS_03\' && sy-cprog ) FIELDS /cwm/cl_enh_layer=>get_field( ).
+* CWM                                                       1654784
+*       update of the GT_V51VP in case VEPO <= item
+        ls_v51vp-/cwm/tmeng = ls_v51vp-/cwm/tmeng - lv_/cwm/partmng.
+        IF ls_v51vp-/cwm/tmeng < 0.
+          ls_v51vp-/cwm/tmeng = 0.
+        ENDIF.
+        ls_v51vp-/cwm/pakmg = ls_v51vp-/cwm/pakmg + lv_/cwm/partmng.
+        lv_/cwm/tmeng = ls_v51vp-/cwm/opmng - ls_v51vp-/cwm/pakmg.
+* CWM                                                       1654784
+ENHANCEMENT-POINT ehp600_match_items_03 SPOTS es_saplv51p .
+        MODIFY gt_v51vp FROM ls_v51vp INDEX lf_tabix_v51vp.
+        ls_item-vbeln = ls_v51vp-vbeln.
+        ls_item-posnr = ls_v51vp-posnr.
+        ls_item-selkz = charx.
+        IF NOT ls_item-updkz = updkz_new.
+          ls_item-updkz = updkz_update.
+        ENDIF.
+        MODIFY ct_vepo FROM ls_item INDEX lf_tabix_vepo.
+        CONTINUE.
+      ELSE.
+* vepo kann nicht mit einer v51vp-Zeile erfüllt werden --> doppeln
+        IF NOT ls_vepo-anzsn IS INITIAL.
+          WRITE ls_v51vp-posnr TO lf_msgv1 USING EDIT MASK '==ALPHA'.
+          WRITE <header>-exidv TO lf_msgv2 USING EDIT MASK '==ALPHA'.
+*         message e094(hudialog).
+          PERFORM set_hu_msg USING <header>-exidv 'HUDIALOG' 'E' '094'
+                                   lf_msgv1 lf_msgv2 space space
+                             CHANGING et_messages.
+          ef_rcode = 4.
+          EXIT.
+        ENDIF.
+        lf_tmeng = lf_tmeng * ls_v51vp-umvkz / ls_v51vp-umvkn.
+        ls_vepo-vemng     = ls_vepo-vemng - lf_tmeng.
+        ls_vepo-vemng_flo = ls_vepo-vemng_flo - lf_tmeng.
+        LOG-POINT ID /cwm/enh SUBKEY to_upper( sy-tcode && '\/CWM/APPL_HU_SAPLV51P\EHP600_MATCH_ITEMS_04\' && sy-cprog ) FIELDS /cwm/cl_enh_layer=>get_field( ).
+* CWM                                                       1654784
+*       prepare the additional VEPO record (LS_VEPO)
+*       here: the rest has to be set
+        ls_vepo-/cwm/vemng     = lv_/cwm/remainmng.
+* CWM
+ENHANCEMENT-POINT ehp600_match_items_04 SPOTS es_saplv51p .
+        IF NOT ls_vepo-vemng IS INITIAL.                    "HP_531364
+          ls_vepo-updkz = updkz_new.
+          ADD 1 TO gs_header51-vepos_high.
+          ls_vepo-vepos = gs_header51-vepos_high.
+          CALL FUNCTION 'SYSTEM_UUID_C22_CREATE' " 3158262
+            IMPORTING
+              uuid_c22 = ls_vepo-handle_vepo.
+          APPEND ls_vepo TO ct_vepo.
+        ENDIF.
+        ls_item-vbeln = ls_v51vp-vbeln.
+        ls_item-posnr = ls_v51vp-posnr.
+        ls_item-vemng = lf_tmeng.
+        ls_item-vemng_flo = lf_tmeng.
+        ls_item-selkz = charx.
+        IF NOT ls_item-updkz = 'I'.
+          ls_item-updkz = updkz_update.
+        ENDIF.
+        LOG-POINT ID /cwm/enh SUBKEY to_upper( sy-tcode && '\/CWM/APPL_HU_SAPLV51P\EHP600_MATCH_ITEMS_05\' && sy-cprog ) FIELDS /cwm/cl_enh_layer=>get_field( ).
+* CWM                                                       1654784
+*       prepare the memorized VEPO record (LS_ITEM)
+*       only the part calculated with the ratio hs to be set
+        ls_item-/cwm/vemng     = lv_/cwm/partmng.
+* CWM
+ENHANCEMENT-POINT ehp600_match_items_05 SPOTS es_saplv51p .
+        MODIFY ct_vepo FROM ls_item INDEX lf_tabix_vepo.
+        ls_v51vp-pakmg = ls_v51vp-pakmg + ls_item-vemng.    "HP_334895
+        ls_v51vp-pakmg_bum = ls_v51vp-pakmg_bum + ls_item-vemng. "589338
+        ls_v51vp-selkz = charx.
+        LOG-POINT ID /cwm/enh SUBKEY to_upper( sy-tcode && '\/CWM/APPL_HU_SAPLV51P\EHP600_MATCH_ITEMS_06\' && sy-cprog ) FIELDS /cwm/cl_enh_layer=>get_field( ).
+* CWM                                                       1654784
+*       update of the memorized GT_V51VP record (delivery)
+        ls_v51vp-/cwm/pakmg = ls_v51vp-/cwm/pakmg + lv_/cwm/partmng.
+* CWM
+ENHANCEMENT-POINT ehp600_match_items_06 SPOTS es_saplv51p .
+        MODIFY gt_v51vp FROM ls_v51vp INDEX lf_tabix_v51vp.
+      ENDIF.
+    ELSE.
+* es wurde keine Position zum Verknüpfen gefunden
+      WRITE <header>-exidv TO lf_msgv1 USING EDIT MASK '==ALPHA'.
+      lf_msgv2 = ls_vepo-matnr.
+      lf_msgv3 = ls_vepo-werks.
+      lf_msgv4 = ls_vepo-lgort.
+*     message e157(hudialog).
+      PERFORM set_hu_msg USING <header>-exidv 'HUDIALOG' 'E' '157'
+                               lf_msgv1 lf_msgv2 lf_msgv3 lf_msgv4
+                         CHANGING et_messages.
+      ef_rcode = 4.
+      EXIT.
+    ENDIF.
+    CLEAR lf_tmeng.
+  ENDLOOP.
+  IF ef_rcode IS INITIAL.  "HU konnte zugeordnet werden
+    READ TABLE ct_vepo INTO ls_vepo INDEX 1.
+    LOOP AT ct_vepo TRANSPORTING NO FIELDS
+                    WHERE velin = '1' AND
+                          ( hu_lgort NE ls_vepo-hu_lgort OR
+                            lgnum    NE ls_vepo-lgnum ).
+      EXIT.
+    ENDLOOP.
+    IF sy-subrc IS INITIAL.
+      WRITE <header>-exidv TO lf_msgv1 USING EDIT MASK '==ALPHA'.
+*     message e194(hudialog).
+      PERFORM set_hu_msg USING <header>-exidv 'HUDIALOG' 'E' '194'
+                               lf_msgv1 lf_msgv2 lf_msgv3 lf_msgv4
+                         CHANGING et_messages.
+      ef_rcode = 4.
+      EXIT.
+    ENDIF.
+    LOOP AT gt_v51vp ASSIGNING <v51vp> WHERE pakmg > 0.
+      <v51vp>-opmng = <v51vp>-opmng - <v51vp>-pakmg.
+      <v51vp>-opmng_bum = <v51vp>-opmng_bum - <v51vp>-pakmg_bum. "589338
+      IF <v51vp>-opmng < 0.
+        CLEAR: <v51vp>-opmng, <v51vp>-tmeng.
+      ENDIF.
+      IF <v51vp>-opmng_bum < 0.                             "SP_605703
+        CLEAR: <v51vp>-opmng_bum.
+      ENDIF.
+      <v51vp>-tmeng = <v51vp>-opmng.
+* in this form, GS_HEADER51-OBJECT = 01 or 03 thus all quantity must be
+* packed in an HUM SLoc.
+      IF <v51vp>-hu_lgort CA 'CDX'.                         "n_740231
+        <v51vp>-tmeng = <v51vp>-lf_opmng.
+      ENDIF.
+      LOG-POINT ID /cwm/enh SUBKEY to_upper( sy-tcode && '\/CWM/APPL_HU_SAPLV51P\EHP600_MATCH_ITEMS_07\' && sy-cprog ) FIELDS /cwm/cl_enh_layer=>get_field( ).
+* CWM                                                       1654784
+*     update of the CWM fields of the item
+*      - /cwm/opmng
+*      - /cwm/tmeng
+*      - /cwm/gsmng
+*      - /cwm/pakmg (already set above)
+
+*     /cwm/opmng should be initialized (workaround) obove
+*      IF ls_v51vp-/cwm/opmng = 0 AND ls_v51vp-opmng <> 0.
+*        IF ls_v51vp-/cwm/tmeng <> 0.
+*          ls_v51vp-/cwm/opmng = ls_v51vp-/cwm/tmeng.
+*        ENDIF.
+*        IF ls_v51vp-/cwm/opmng = 0 AND ls_v51vp-/cwm/gsmng <> 0.
+*          ls_v51vp-/cwm/opmng = ls_v51vp-/cwm/gsmng.
+*        ENDIF.
+*      ENDIF.
+*     calculate the remaining quantity OPMNG
+      <v51vp>-/cwm/opmng = <v51vp>-/cwm/opmng - <v51vp>-/cwm/pakmg.
+      IF <v51vp>-/cwm/opmng < 0.
+        CLEAR: <v51vp>-/cwm/opmng, <v51vp>-/cwm/tmeng.
+      ENDIF.
+*     as the PUoM must not lead to 0 (as in logistic UoM)
+*     we should also check the remaining OPMNG in lgiostic UoM
+      IF <v51vp>-opmng = 0.
+        CLEAR: <v51vp>-/cwm/opmng.
+      ENDIF.
+*
+      <v51vp>-/cwm/tmeng = <v51vp>-/cwm/opmng.
+*     adjust the whole quantity GSMNG
+*      - only if there is no rest, then take over the complete packed
+*        quantity
+      IF  <v51vp>-/cwm/opmng = 0.
+        <v51vp>-/cwm/gsmng = lv_/cwm/packed + <v51vp>-/cwm/pakmg.
+      ENDIF.
+
+*     does not work for CWM as required field not given (DDIC)
+*      IF <v51vp>-hu_lgort CA 'CDX'.
+*        <v51vp>-tmeng = <v51vp>-lf_opmng.
+*      ENDIF.
+* CWM                                                       1654784
+ENHANCEMENT-POINT ehp600_match_items_07 SPOTS es_saplv51p .
+* v Note 557248
+* Update QM Link Between Inspection Lot and Handling Unit Item
+      IF NOT <v51vp>-qplos IS INITIAL AND NOT <v51vp>-hu_system = 'B'.
+        LOOP AT ct_vepo ASSIGNING <item> WHERE vbeln = <v51vp>-vbeln
+                                           AND posnr = <v51vp>-posnr.
+          IF <item>-venum <> <header>-venum.
+            READ TABLE ct_vekp ASSIGNING <header>
+             WITH KEY venum = <item>-venum.
+            IF NOT sy-subrc IS INITIAL.
+*             MESSAGE E099(HUGENERAL).
+              PERFORM set_hu_msg USING space 'HUGENERAL' 'E' '099'
+                                 space space space space
+                              CHANGING et_messages.
+              ef_rcode = 4.
+              EXIT.
+            ENDIF.
+          ENDIF.
+          PERFORM actualize_qmhu USING <header>-exidv <item> space.
+        ENDLOOP.
+      ENDIF.
+    ENDLOOP.
+    IF NOT ef_rcode IS INITIAL.
+      EXIT.
+    ENDIF.
+* ^ Note 557248
+    CLEAR: ls_v51vp-selkz, ls_v51vp-pakmg, ls_v51vp-pakmg_bum.
+    MODIFY gt_v51vp FROM ls_v51vp TRANSPORTING selkz pakmg
+                                               pakmg_bum    "SP_605703
+                                  WHERE NOT selkz IS INITIAL OR
+                                        NOT pakmg IS INITIAL OR
+                                        NOT pakmg_bum IS INITIAL.
+    LOG-POINT ID /cwm/enh SUBKEY to_upper( sy-tcode && '\/CWM/APPL_HU_SAPLV51P\EHP600_MATCH_ITEMS_08\' && sy-cprog ) FIELDS /cwm/cl_enh_layer=>get_field( ).
+* CWM                                                       1654784
+*   additional update for CWM
+    CLEAR: ls_v51vp-/cwm/pakmg.
+    MODIFY gt_v51vp FROM ls_v51vp TRANSPORTING /cwm/pakmg
+                                  WHERE NOT /cwm/pakmg IS INITIAL.
+* CWM                                                       1654784
+ENHANCEMENT-POINT ehp600_match_items_08 SPOTS es_saplv51p .
+    ls_vekp-lgnum = ls_vepo-lgnum.
+    ls_vekp-hu_system = ls_v51vp-hu_system.                 "n_727588
+    IF lf_hulgort <> 'N'.                                   "SP_710931
+      ls_vekp-hu_lgort = lf_hulgort.
+    ELSE.
+*     HU is empty
+      CLEAR: ls_vekp-hu_lgort.
+    ENDIF.
+    MODIFY ct_vekp FROM ls_vekp TRANSPORTING lgnum hu_lgort hu_system
+                                WHERE lgnum NE ls_vekp-lgnum OR
+                                      hu_system NE ls_vekp-hu_system OR
+                                      hu_lgort NE ls_vekp-hu_lgort.
+  ENDIF.
+ENDFORM.                    " MATCH_ITEMS
+*&---------------------------------------------------------------------*
+*&      Form  MENGEN_UMRECHNEN
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM mengen_umrechnen CHANGING cf_menge  TYPE vemng
+                               cf_mengef TYPE lgmng_flo
+                               cs_v51vp  TYPE v51vp.
+  DATA: lf_zaehler TYPE sy-tabix, lf_nenner TYPE sy-tabix,
+        lf_meneh   TYPE v51vp-vrkme.
+  CALL FUNCTION 'MATERIAL_UNIT_CONVERSION'
+    EXPORTING
+      matnr                = cs_v51vp-matnr
+      meinh                = cs_v51vp-vrkme
+      meins                = cs_v51vp-meins
+      no_output            = 'X'
+      charge               = cs_v51vp-charg
+      werks                = cs_v51vp-werks
+    IMPORTING
+      umren                = lf_nenner
+      umrez                = lf_zaehler
+    EXCEPTIONS
+      conversion_not_found = 1
+      meinh_not_found      = 4
+      OTHERS               = 99.
+  IF NOT sy-subrc IS INITIAL.
+    RAISE fatal_error.
+  ELSE.
+    IF lf_zaehler > lf_nenner.
+      lf_meneh = cs_v51vp-meins.
+    ENDIF.
+  ENDIF.
+  IF lf_meneh = cs_v51vp-meins.
+    cf_mengef = cf_mengef * lf_nenner / lf_zaehler.
+  ELSE.
+    cf_mengef = cf_mengef * lf_zaehler / lf_nenner.
+  ENDIF.
+  cf_menge = cf_mengef.
+ENDFORM.                    " MENGEN_UMRECHNEN
+*&---------------------------------------------------------------------*
+*&      Form  ADD_HU_ATTRIBUTS
+*&---------------------------------------------------------------------*
+*       füllen der Verandspezifischen vekp-Felder
+*----------------------------------------------------------------------*
+*      <--CT_XVEKP  text                                             *
+*----------------------------------------------------------------------*
+FORM add_hu_attributs CHANGING ct_xvekp TYPE vsep_t_vekp
+                               ct_vepo  TYPE hum_hu_item_t.
+  CALL FUNCTION 'HU_DELIVERY_ATTRIBUTES_ADD'
+    EXPORTING
+      is_header51 = gs_header51
+    CHANGING
+      ct_header   = ct_xvekp
+      ct_items    = ct_vepo.
+
+ENDFORM.                    " ADD_HU_ATTRIBUTS
+*&---------------------------------------------------------------------*
+*&      Form  SYSTEMFELDER_ANPASSEN
+*&---------------------------------------------------------------------*
+FORM systemfelder_anpassen CHANGING ct_vekp TYPE vsep_t_vekp.
+  DATA: ls_vekp TYPE vekpvb.
+
+  ls_vekp-aenam = sy-uname.
+  ls_vekp-aedat = sy-datum.
+  ls_vekp-aezet = sy-uzeit.
+  MODIFY ct_vekp FROM ls_vekp TRANSPORTING aenam aedat aezet
+                              WHERE updkz = updkz_update.
+ENDFORM.                    " SYSTEMFELDER_ANPASSEN
+*&---------------------------------------------------------------------*
+*&      Form  CHECK_IF_ADDING_IS_ALLOWED
+*&---------------------------------------------------------------------*
+*       Prüfung, ob die gelesenen HUs dem aktuellen Objekt
+*       zugeordnet werden dürfen
+*----------------------------------------------------------------------*
+FORM check_if_adding_is_allowed USING    if_empty TYPE xfeld
+                                         is_vekp TYPE vekpvb
+                                CHANGING ef_rcode TYPE sy-subrc
+                                    et_messages TYPE huitem_messages_t.
+  DATA: ls_object TYPE hum_object.
+
+  MOVE-CORRESPONDING gs_header51 TO ls_object.
+  PERFORM assignment_header_check USING    if_empty ls_object is_vekp
+                                  CHANGING ef_rcode et_messages.
+ENDFORM.                    " CHECK_IF_ADDING_IS_ALLOWED
+*---------------------------------------------------------------------*
+*                FORM SEARCH_FOR_TOP_HU
+*---------------------------------------------------------------------*
+FORM search_for_top_hu USING if_tabix TYPE sy-tabix
+                             it_vekp  TYPE vsep_t_vekp
+                             it_vepo  TYPE vsep_t_vepo
+                       CHANGING es_vekp TYPE vekpvb.
+  DATA: ls_vepo TYPE vepovb.
+  READ TABLE it_vepo INTO ls_vepo INDEX if_tabix.
+  IF NOT sy-subrc IS INITIAL.
+    MESSAGE e142(hugeneral) RAISING fatal_error.
+  ENDIF.
+  PERFORM read_vepo USING ls_vepo-venum it_vekp it_vepo
+                    CHANGING es_vekp.
+ENDFORM.                    "SEARCH_FOR_TOP_HU
+*---------------------------------------------------------------------*
+*                FORM READ_VEPO
+*---------------------------------------------------------------------*
+FORM read_vepo USING if_venum TYPE vepo-venum
+                     it_vekp  TYPE vsep_t_vekp
+                     it_vepo  TYPE vsep_t_vepo
+               CHANGING es_vekp TYPE vekpvb.
+  DATA: ls_vepo TYPE vepovb.
+
+  READ TABLE it_vepo INTO ls_vepo WITH KEY unvel = if_venum.
+  IF NOT sy-subrc IS INITIAL.
+    READ TABLE it_vekp INTO es_vekp WITH KEY venum = if_venum.
+  ELSE.
+    PERFORM read_vepo USING ls_vepo-venum it_vekp it_vepo
+                      CHANGING es_vekp.
+  ENDIF.
+ENDFORM.                    "READ_VEPO
+
+
+
+*-----------------------------------------------------------------
+FORM assignment_header_check USING    if_empty  TYPE xfeld
+                                      is_object TYPE hum_object
+                                      is_header TYPE vekpvb
+                             CHANGING ef_subrc TYPE sysubrc
+                                    et_messages TYPE huitem_messages_t.
+
+*..... deleted HUs cannot be used
+  IF is_header-status = gc_terminiert.
+*   message e182(hufunctions).
+    PERFORM set_hu_msg USING    is_header-exidv 'HUFUNCTIONS' 'E' '182'
+                                space space space space
+                       CHANGING et_messages.
+    ef_subrc = 4.
+    EXIT.
+
+  ENDIF.
+  IF NOT is_header-aendb IS INITIAL.
+*   message e090(hudialog).
+    PERFORM set_hu_msg USING    is_header-exidv 'HUDIALOG' 'E' '090'
+                                space space space space
+                       CHANGING et_messages.
+    ef_subrc = 4.
+    EXIT.
+  ENDIF.
+  WRITE is_header-exidv TO sy-msgv1 USING EDIT MASK '==ALPHA'.
+*..... check object compability
+  CASE is_header-vpobj.
+    WHEN gc_obj_01 OR gc_obj_03.
+      IF is_header-vpobjkey = is_object-objkey.
+*       message e190(hufunctions).
+        sy-msgno = '190'.
+      ELSE.
+        IF is_header-vpobj = gc_obj_01.
+          IF is_header-status = gc_wa OR is_header-status = gc_transit. "n_1156123
+*            OR is_header-status = gc_existent. "SPE non-HU mngd StLoc  "n_1156123
+            CLEAR sy-msgno.
+          ELSE.
+*           message e191(hufunctions).
+            sy-msgno = '191'.
+          ENDIF.
+        ELSE.
+*         message e086(hufunctions).
+          sy-msgno = '086'.
+        ENDIF.
+      ENDIF.
+      IF NOT sy-msgno IS INITIAL.
+        WRITE is_header-vpobjkey TO sy-msgv2 USING EDIT MASK '==ALPHA'.
+        PERFORM set_hu_msg USING    is_header-exidv 'HUFUNCTIONS' 'E'
+                                  sy-msgno sy-msgv1 sy-msgv2 space space
+                           CHANGING et_messages.
+        ef_subrc = 4.
+        EXIT.
+      ENDIF.
+    WHEN gc_obj_07 OR gc_obj_09.
+      IF if_empty IS INITIAL.              "globale Tabellen nicht leer
+        IF is_header-vpobj <> is_object-object OR
+           ( is_header-vpobjkey <> is_object-objkey AND     " 670027
+             is_object-object <> gc_obj_07 ).
+          IF is_object-object <> gc_obj_03.
+*           message e261(hufunctions).
+            WRITE is_header-vpobjkey TO sy-msgv2
+                                     USING EDIT MASK '==ALPHA'.
+            PERFORM set_hu_msg USING    is_header-exidv 'HUFUNCTIONS'
+                                        'E' '261' sy-msgv1 sy-msgv2
+                                        space space
+                               CHANGING et_messages.
+            ef_subrc = 4.
+            EXIT.
+          ENDIF.
+        ENDIF.
+      ELSE.
+        gs_header51-object = is_header-vpobj.
+        gs_header51-objkey = is_header-vpobjkey.
+        IF gs_header51-object = '09'.                       "n_v_996412
+          gs_header51-profile = '0010'.
+          gs_hu_mm-prozess = 'B'.
+          IF is_header-status = '0001'.
+            gs_header51-planhu = 'A'.
+          ELSE.
+            gs_header51-planhu = 'B'.
+          ENDIF.
+*        else.
+*          ls_header51-profile = '0008'.
+*          GS_HU_MM-PROZESS = 'B'.
+*          if is_header-status = '0001'.
+*            gs_header51-planhu = 'A'.
+*          else.
+*            gs_header51-planhu = 'B'.
+*          endif.
+        ENDIF.                                              "n_^_996412
+      ENDIF.
+    WHEN gc_obj_08.
+*... in 4.6C kein Dialog (nur COPAWA)
+      IF NOT gs_header51-object = gc_obj_08.
+*       message e261(hufunctions).
+        WRITE is_header-vpobjkey TO sy-msgv2 USING EDIT MASK '==ALPHA'.
+        PERFORM set_hu_msg USING    is_header-exidv 'HUFUNCTIONS'
+                                    'E' '261' sy-msgv1 sy-msgv2
+                                    space space
+                           CHANGING et_messages.
+        ef_subrc = 4.                                       "SP_562480
+      ENDIF.
+      IF NOT is_header-vpobjkey = is_object-objkey          "1739789
+      AND syst-ucomm = 'ASSI'.                              "1748927
+*       message e147(hudialog).
+        WRITE is_header-exidv TO sy-msgv1 USING EDIT MASK '==ALPHA'.
+        PERFORM set_hu_msg USING    is_header-exidv 'HUDIALOG'
+                                    'E' '147' sy-msgv1 space
+                                    space space
+                           CHANGING et_messages.
+        ef_subrc = 4.
+      ENDIF.
+
+    WHEN gc_obj_05 OR gc_obj_06 OR gc_obj_12.
+      IF gs_header51-object = gc_obj_07 AND
+         gs_header51-object = gc_obj_09.
+*       message e261(hufunctions).
+        WRITE is_header-vpobjkey TO sy-msgv2 USING EDIT MASK '==ALPHA'.
+        PERFORM set_hu_msg USING    is_header-exidv 'HUFUNCTIONS'
+                                    'E' '261' sy-msgv1 sy-msgv2
+                                    space space
+                           CHANGING et_messages.
+      ENDIF.
+    WHEN OTHERS.
+*     message e155(hudialog).
+      PERFORM set_hu_msg USING    is_header-exidv 'HUDIALOG' 'E' '155'
+                                  sy-msgv1 space space space
+                         CHANGING et_messages.
+      ef_subrc = 4.
+      EXIT.
+  ENDCASE.
+  CASE is_object-object.
+    WHEN gc_obj_01.
+*... only HUs from stock are allowed. (GR is not possible in this case)
+      IF is_header-status <> gc_existent AND
+         is_header-status <> gc_status_inv.
+*       message e141(hudialog) with sy-msgv1 sy-msgv2.
+        sy-msgv2 = is_header-status.
+        PERFORM set_hu_msg USING    is_header-exidv 'HUDIALOG' 'E' '141'
+                                    sy-msgv1 sy-msgv2 space space
+                           CHANGING et_messages.
+        ef_subrc = 4.
+        EXIT.
+      ENDIF.
+      IF is_header-hu_lgort = charx AND is_header-wm_verw = charx.
+*       message i192(hudialog).
+        PERFORM set_hu_msg USING    is_header-exidv 'HUDIALOG' 'E' '192'
+                                    sy-msgv1 space space space
+                           CHANGING et_messages.
+        ef_subrc = 4.
+        EXIT.
+      ENDIF.
+      CASE is_header-vpobj.
+        WHEN gc_obj_01 OR gc_obj_02 OR gc_obj_03 OR gc_obj_04.
+*... müßte bereits weiter oben abgefangen sein!!
+        WHEN gc_obj_05 OR gc_obj_06 OR gc_obj_12.
+        WHEN gc_obj_07 OR gc_obj_08 OR gc_obj_09.
+*... müßte auch oben abgefangen sein, außer Lieferdialog ist noch leer
+*         message e155(hudialog).
+          PERFORM set_hu_msg USING    is_header-exidv 'HUDIALOG' 'E'
+                                      '155' sy-msgv1 space space space
+                             CHANGING et_messages.
+          ef_subrc = 4.
+          EXIT.
+      ENDCASE.
+    WHEN gc_obj_02 OR gc_obj_04.
+      WRITE is_header-exidv TO sy-msgv1 USING EDIT MASK '==ALPHA'.
+*     message e155(hudialog).
+      PERFORM set_hu_msg USING    is_header-exidv 'HUDIALOG' 'E' '155'
+                                  sy-msgv1 space space space
+                         CHANGING et_messages.
+      ef_subrc = 4.
+      EXIT.
+    WHEN gc_obj_03.
+      CASE gs_header51-posting_change.
+        WHEN space OR 'A'.                     "Wareneingang von extern
+          IF is_header-status = gc_existent OR
+             is_header-status = gc_status_inv.
+*            message e150(hudialog).                         "SP_758757
+            PERFORM set_hu_msg USING is_header-exidv 'HUDIALOG' 'E' '150'
+                                      sy-msgv1 space space space
+                               CHANGING et_messages.
+            ef_subrc = 4.
+            EXIT.
+          ENDIF.
+          IF is_header-status = gc_transit.
+*           message e195(hufunctions).                       "SP_758757
+            PERFORM set_hu_msg USING is_header-exidv
+                                       'HUFUNCTIONS' 'I'    "n_896379
+                                      '195' sy-msgv1 space space space
+                                CHANGING et_messages.
+          ENDIF.
+        WHEN 'B'.                             "Wareneingang aus Transit
+          IF is_header-status = gc_existent OR
+             is_header-status = gc_status_inv.
+*           message e150(hudialog).                          "SP_758757
+            PERFORM set_hu_msg USING is_header-exidv 'HUDIALOG' 'E' '150'
+                                      sy-msgv1 space space space
+                                CHANGING et_messages.
+            ef_subrc = 4.
+            EXIT.
+          ENDIF.
+          IF is_header-status = gc_wa.
+*           message e194(hufunctions).                       "SP_758757
+            PERFORM set_hu_msg USING is_header-exidv 'HUFUNCTIONS' 'E'
+                                     '194' sy-msgv1 space space space
+                               CHANGING et_messages.
+            ef_subrc = 4.
+            EXIT.
+          ENDIF.
+        WHEN OTHERS.
+          IF is_header-status = gc_geplant    OR
+             is_header-status = gc_realisiert OR
+             is_header-status = gc_wa OR
+             is_header-status = gc_transit.
+*          message e095(hudialog).                           "SP_758757
+
+            PERFORM set_hu_msg USING is_header-exidv 'HUDIALOG' 'E' '095'
+                                      sy-msgv1 space space space
+                                CHANGING et_messages.
+            ef_subrc = 4.
+            EXIT.
+          ENDIF.
+      ENDCASE.
+    WHEN gc_obj_07.
+      IF is_header-vpobj <> gc_obj_07.
+*       message e155(hudialog).
+        PERFORM set_hu_msg USING is_header-exidv 'HUDIALOG' 'E' '155'
+                                 sy-msgv1 space space space
+                           CHANGING et_messages.
+        ef_subrc = 4.
+        EXIT.
+      ENDIF.
+    WHEN gc_obj_08.
+      IF is_header-status <> gc_existent.
+*       message e193(hufunctions).
+        PERFORM set_hu_msg USING is_header-exidv 'HUFUNCTIONS' 'E' '193'
+                                 sy-msgv1 space space space
+                           CHANGING et_messages.
+      ENDIF.
+    WHEN gc_obj_09.
+      IF is_header-vpobj    <> gc_obj_09 OR
+         is_header-vpobjkey <> is_object-objkey.
+*       message e155(hudialog).
+        PERFORM set_hu_msg USING is_header-exidv 'HUDIALOG' 'E' '155'
+                                 sy-msgv1 space space space
+                           CHANGING et_messages.
+        ef_subrc = 4.
+        EXIT.
+      ENDIF.
+    WHEN gc_obj_12.
+    WHEN OTHERS.
+*....  gibts eigentlich nicht
+  ENDCASE.
+ENDFORM.
