@@ -1793,3 +1793,707 @@ FORM create_genpos_entry_aux
   ls_genpos-updkz = 'I'.
   INSERT ls_genpos INTO ct_genpos INDEX cf_tabix.
 ENDFORM.                    "create_genpos_entry_aux
+
+
+FUNCTION v51p_packing_determination.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     REFERENCE(IF_CALL) TYPE  CHAR1 DEFAULT SPACE
+*"     REFERENCE(IT_KOMPV) TYPE  VSEP_T_KOMPV OPTIONAL
+*"  EXPORTING
+*"     VALUE(EF_EXISTING_DATA) TYPE  XFELD
+*"     REFERENCE(ET_MESSAGES) TYPE  HUITEM_MESSAGES_T
+*"     REFERENCE(ET_HEADER) TYPE  HUM_HU_HEADER_T
+*"  EXCEPTIONS
+*"      PACKINSTRUCTION
+*"----------------------------------------------------------------------
+  DATA: ct_verko         TYPE vsep_t_verko, ct_verpo TYPE vsep_t_verpo,
+        lt_kompv         TYPE vsep_t_kompv, lt_pdshpunit TYPE vsep_t_ervh,
+        lt_hu_items      TYPE huitm_prop, lt_hdr_pro TYPE hum_hdr_proposal_t,
+        lt_hdr_pro_tmp   TYPE hum_hdr_proposal_t,           "n_792080
+        lt_packitems     TYPE pdt_packitems, lt_packgoods TYPE pdt_packgoods,
+        lt_header_pro    TYPE huhdr_prop, lt_header_cap TYPE huhdr_cap,
+        lt_header_tra    TYPE huhdr_tra,  lt_header_add TYPE huhdr_add,
+        lt_hu_item_sernr TYPE hum_rep_sernr_t.
+  DATA: ls_kompv     TYPE kompv, ls_pdshpunit TYPE vsep_s_ervh,
+        ls_packitems TYPE packitem.
+  DATA: ls_verko      TYPE verko, ls_verpo TYPE verpo,
+        ls_hdr_pro    TYPE hum_hdr_proposal,
+        ls_header_pro TYPE huhdr_proposal,
+        ls_header_cap TYPE huhdr_capacity,
+        ls_header_tra TYPE huhdr_transport,
+        ls_header_add TYPE huhdr_additional_data,
+        ls_huitem_pro TYPE huitm_proposal,
+        ls_pdt_obj    TYPE pdt_object.
+  DATA: lf_ext_nummern(1), lf_anzahl TYPE likp-anzpk,
+  lf_schleifen TYPE sytabix, lf_rcode TYPE sy-subrc,
+  lf_loop TYPE sytabix, lf_scheme LIKE c_scheme_pp,
+  lf_msg TYPE symsgv, lf_hu_status TYPE hu_status,
+  lf_retcode TYPE char1.
+  DATA: lf_vbeln LIKE likp-vbeln.                           " 682506
+  DATA lv_profile_type TYPE lohum_de_upb_profile_type.
+  DATA: l_badi_autopack_sap TYPE REF TO badi_hu_autopack_sap.
+
+  CONSTANTS: lc_application TYPE char1 VALUE '1'.
+
+  lt_kompv[] = it_kompv[].
+  CASE if_call.
+    WHEN 'A'.
+      PERFORM kompv_aufbauen_aus_v51vp USING gs_header51-objkey
+                                       CHANGING lt_kompv.
+    WHEN 'D'.
+      PERFORM kompv_vervollstaendigen CHANGING lt_kompv.
+    WHEN 'E'.
+      IF gs_header51-object IS INITIAL.
+        gs_header51-object = gc_obj_05.
+      ENDIF.
+      READ TABLE it_kompv INTO ls_kompv INDEX 1.
+*<<<<< begin of insert HP_439638   >>>>>>>>>>>>>>>>
+      IF gs_hu_mm-lgnum IS INITIAL.
+        gs_hu_mm-lgnum = ls_kompv-lgnum.
+      ENDIF.
+      IF gs_hu_mm-werks IS INITIAL.
+        gs_hu_mm-werks = ls_kompv-werks.
+      ENDIF.
+      IF gs_hu_mm-lgort IS INITIAL.
+        gs_hu_mm-lgort = ls_kompv-lgort.
+      ENDIF.
+*<<<<<<< end of insert HP_439638 >>>>>>>>>>>>>>>>>>>>
+      gs_header51-objkey = ls_kompv-pobjkey.
+      gs_header51-profile = '0016'.
+  ENDCASE.
+  IF lf_schleifen IS INITIAL. lf_schleifen = 1. ENDIF.
+* Bestimmen der Anzahl Verpackungsstufen (und ggf. Ändern von kompv)
+  CALL CUSTOMER-FUNCTION '003'
+    EXPORTING
+      is_v51ko = gs_v51ko
+      it_v51vp = gt_v51vp
+      it_vekp  = gt_xvekp
+    CHANGING
+      cf_loops = lf_schleifen
+      ct_kompv = lt_kompv.
+  IF lt_kompv IS INITIAL.
+* message i106(HUGENERAL).
+    PERFORM set_hu_msg USING    space 'HUGENERAL' 'I' '106'
+                                space space space space
+                       CHANGING et_messages.
+    EXIT.
+  ENDIF.
+  ls_pdt_obj-objtype = gs_header51-object.
+  ls_pdt_obj-objkey  = gs_header51-objkey.
+  DO lf_schleifen TIMES.
+    lf_loop = lf_loop + 1.
+    CHECK NOT lt_kompv[] IS INITIAL.
+    REFRESH: lt_pdshpunit.
+*ermitteln des richtigen Versandhilfsmittels.
+    REFRESH: lt_packitems, lt_packgoods.
+    PERFORM determine_packgoods USING lt_kompv
+                                CHANGING lt_packgoods.
+*-----Begin: Application :IS-MP-LE, Switch:/SAPMP/HUM_PACKAGING ,HUM/Packaging------*
+*-/SAPMP/ - Automatisches Verpacken von Kabeln auf Trommel      "/SAPMP/
+    CALL FUNCTION '/SAPMP/PREPARE'                              "/SAPMP/
+      EXPORTING                                                 "/SAPMP/
+        if_loop         = lf_loop                           "/SAPMP/
+        is_general_data = gs_header51                       "/SAPMP/
+      CHANGING                                                  "/SAPMP/
+        ct_packgoods    = lt_packgoods                      "/SAPMP/
+        ct_messages     = et_messages.                      "/SAPMP/
+*-----End: Application :IS-MP-LE, Switch:/SAPMP/HUM_PACKAGING ,HUM/Packaging--------*
+
+ENHANCEMENT-POINT V51P_PACKING_DETERMINATION_04 SPOTS ES_SAPLV51P.
+*... customer-exit from 4.0A - automatic packing without packinstruction
+    CALL CUSTOMER-FUNCTION '001'
+      EXPORTING
+        if_vpobjkey  = gs_header51-objkey
+        if_vpobj     = gs_header51-object
+        if_loop      = lf_loop
+      CHANGING
+        cx_pdshpunit = lt_pdshpunit
+        ct_kompv     = lt_kompv.
+*                   CT_PACKITEMS = LT_PACKITEMS.
+*.... new user-exit with influence on packinstruction
+    CALL METHOD gs_badi-usex->method_prepare
+      EXPORTING
+        if_loop         = lf_loop
+        is_general_data = gs_header51
+      CHANGING
+        ct_packgoods    = lt_packgoods
+      EXCEPTIONS
+        exit            = 1
+        OTHERS          = 0.
+    IF NOT sy-subrc IS INITIAL.
+* vom Kunden abgebrochen
+      EXIT.
+    ENDIF.
+
+    IF cl_lohum_upb_base=>if_lohum_upb_base~get_upb_master_setting( ) = 'X'.
+      IF go_upb IS NOT BOUND.
+        go_upb = NEW cl_lohum_upb_one_step_packing(  ).
+        go_upb->if_lohum_upb_base~set_profile( iv_profile = gs_header51-profile ).
+      ENDIF.
+      gs_header51-profile = go_upb->if_lohum_upb_base~get_inner_profile( ).
+      lv_profile_type = go_upb->if_lohum_upb_base~get_profile_type( ).
+    ELSE.
+      lv_profile_type = 'PTP'.
+    ENDIF.
+    IF lv_profile_type = 'UPB'.
+      INCLUDE incl_clear_msg.
+      go_upb->if_lohum_upb_base~map_packgood_to_upb( it_packdata_t_packgood = lt_packgoods ).
+      go_upb->if_lohum_upb_base~build_packages(
+        EXPORTING
+          iv_upb_profile = go_upb->if_lohum_upb_base~get_profile_name( )
+          iv_auto_resolve_flag = abap_false
+          iv_selection_dialog_flag = abap_false
+          iv_showmode_flag = abap_false
+        IMPORTING
+          et_messages    = DATA(lt_messages)
+      ).
+      LOOP AT lt_messages INTO DATA(ls_message).
+        PERFORM set_hu_msg USING    space ls_message-id ls_message-type ls_message-number
+                                    ls_message-message_v1 ls_message-message_v2 ls_message-message_v3 ls_message-message_v4
+                           CHANGING et_messages.
+      ENDLOOP.
+      go_upb->if_lohum_upb_base~map_upb_output_to_lohum( IMPORTING es_hu_proposal = DATA(ls_hu_proposal) ).
+      lt_header_pro = ls_hu_proposal-t_header.
+      lt_hu_items = ls_hu_proposal-t_item.
+      lt_header_add = ls_hu_proposal-t_add.
+    ELSE.
+      IF lf_loop < 2.
+        INCLUDE incl_clear_msg.
+        CALL FUNCTION 'VHUPILE_ASSIGN_PACKINSTRUCTION'
+          EXPORTING
+            application         = lc_application
+            object              = ls_pdt_obj
+            profile             = gs_header51-profile
+            packgoods           = lt_packgoods
+          IMPORTING
+            packitems           = lt_packitems
+            return_code         = lf_retcode
+          EXCEPTIONS
+            failure             = 1
+            profile_not_found   = 2
+            profile_wrong       = 3
+            creation_failed     = 4
+            no_packgood_found   = 5
+            packinstr_deleted   = 6
+            packinstr_not_found = 7
+            OTHERS              = 99.
+
+        IF ( NOT sy-subrc IS INITIAL OR lf_retcode = 1 ) AND
+           lt_pdshpunit IS INITIAL. "keine PV und kein Kundenvorschlag
+          IF sy-msgid IS INITIAL.
+* message i081(HUGENERAL).
+            PERFORM set_hu_msg USING    space 'HUGENERAL' 'I' '081'
+                                        space space space space
+                               CHANGING et_messages.
+          ELSE.
+            PERFORM set_hu_msg USING   space sy-msgid 'I' sy-msgno
+                                       sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+                               CHANGING et_messages.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+      IF NOT lt_packitems IS INITIAL.
+        CALL FUNCTION 'VHUPILE_CREATE_HU_PROPOSALS'
+          EXPORTING
+            application     = '1'
+            packitems       = lt_packitems
+            object          = ls_pdt_obj
+            profile         = gs_header51-profile
+          IMPORTING
+            t_hd_prp        = lt_header_pro
+            t_hd_cap        = lt_header_cap
+            t_hd_add        = lt_header_add
+            t_hd_tra        = lt_header_tra
+            t_items         = lt_hu_items
+          EXCEPTIONS
+            creation_failed = 1
+            OTHERS          = 2.
+        IF NOT sy-subrc IS INITIAL.
+          IF sy-msgid IS INITIAL OR sy-msgty = 'S'.
+* message i082(HUGENERAL).
+            PERFORM set_hu_msg USING    space 'HUGENERAL' 'I' '082'
+                                        space space space space
+                               CHANGING et_messages.
+
+          ELSE.
+            PERFORM set_hu_msg USING   space sy-msgid sy-msgty sy-msgno
+                                       sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+                               CHANGING et_messages.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+*-----Begin: Application :IS-MP-LE, Switch:/SAPMP/HUM_PACKAGING ,HUM/Packaging------*
+*-/SAPMP/ - Automatisches Verpacken von Kabeln auf Trommel      "/SAPMP/
+    CALL FUNCTION '/SAPMP/PROPOSAL'                             "/SAPMP/
+      EXPORTING                                              "/SAPMP/
+        it_packgoods         = lt_packgoods                 "/SAPMP/
+        it_packitems         = lt_packitems                 "/SAPMP/
+        if_loop              = lf_loop                      "/SAPMP/
+      CHANGING                                               "/SAPMP/
+        ct_items_sernr       = lt_hu_item_sernr             "/SAPMP/
+        ct_items             = lt_hu_items                  "/SAPMP/
+        ct_hdr_shipment_info = lt_header_tra                "/SAPMP/
+        ct_hdr_additional    = lt_header_add                "/SAPMP/
+        ct_hdr_capacity      = lt_header_cap                "/SAPMP/
+        ct_hdr_proposal      = lt_header_pro                "/SAPMP/
+        ct_messages          = et_messages                  "/SAPMP/
+      EXCEPTIONS                                             "/SAPMP/
+        no_proposal          = 1.                           "/SAPMP/
+    "/SAPMP/
+    IF sy-subrc <> 0.                                          "/SAPMP/
+*-Es konnte kein Packvorschlag ermittelt werden.                "/SAPMP/
+      MESSAGE i020(/sapmp/le).                                 "/SAPMP/
+    ENDIF.
+*-----End: Application :IS-MP-LE, Switch:/SAPMP/HUM_PACKAGING ,HUM/Packaging--------*
+
+ENHANCEMENT-POINT V51P_PACKING_DETERMINATION_05 SPOTS ES_SAPLV51P.
+
+*...new internal badi for adopting proposals
+    TRY.
+        GET BADI l_badi_autopack_sap.
+      CATCH cx_badi_not_implemented.
+        CLEAR l_badi_autopack_sap.
+      CATCH cx_badi_multiply_implemented.
+        MESSAGE e475(enhancement)
+              WITH 'BADI_HU_AUTOPACK_SAP'.
+    ENDTRY.
+
+    IF NOT l_badi_autopack_sap IS INITIAL.
+
+      CALL BADI l_badi_autopack_sap->adopt_proposal
+        EXPORTING
+          if_loop              = lf_loop
+          it_packitems         = lt_packitems
+          it_packgoods         = lt_packgoods
+          is_general_data      = gs_header51
+        CHANGING
+          ct_hdr_proposal      = lt_header_pro
+          ct_hdr_capacity      = lt_header_cap
+          ct_hdr_additional    = lt_header_add
+          ct_hdr_shipment_info = lt_header_tra
+          ct_items             = lt_hu_items
+          ct_items_sernr       = lt_hu_item_sernr
+        EXCEPTIONS
+          no_proposal          = 1
+          OTHERS               = 0.
+
+      IF NOT sy-subrc IS INITIAL.
+        EXIT.
+      ENDIF.
+
+    ENDIF.
+
+*... old userexit without packinstruction
+    CALL CUSTOMER-FUNCTION '002'
+      EXPORTING
+        if_vpobjkey  = gs_header51-objkey
+        if_vpobj     = gs_header51-object
+        if_loop      = lf_loop
+        if_call      = if_call
+        it_kompv     = lt_kompv
+        ix_pdshpunit = lt_pdshpunit
+      IMPORTING
+        et_verko     = ct_verko
+        et_verpo     = ct_verpo
+      CHANGING
+        ct_messages  = et_messages.               "AP1010770
+
+* new user-exit with packinstruction
+    CALL METHOD gs_badi-usex->method_proposal
+      EXPORTING
+        if_loop              = lf_loop
+        it_packitems         = lt_packitems
+        it_packgoods         = lt_packgoods
+      CHANGING
+        ct_hdr_proposal      = lt_header_pro
+        ct_hdr_capacity      = lt_header_cap
+        ct_hdr_additional    = lt_header_add
+        ct_hdr_shipment_info = lt_header_tra
+        ct_items             = lt_hu_items
+        ct_items_sernr       = lt_hu_item_sernr
+        ct_messages          = et_messages                "NC900179
+      EXCEPTIONS
+        no_proposal          = 1
+        OTHERS               = 0.
+    IF NOT sy-subrc IS INITIAL.
+* vom Kunden abgebrochen
+      EXIT.
+    ENDIF.
+
+    IF ct_verko IS INITIAL AND ct_verpo IS INITIAL AND
+       lt_header_pro IS INITIAL AND lt_hu_items IS INITIAL.
+*  message i107(HUGENERAL).
+      WRITE lf_loop TO lf_msg.
+*      LF_MSG = LF_LOOP.
+      PERFORM set_hu_msg USING    space 'HUGENERAL' 'I' '107'
+*                                 LF_MSG SPACE SPACE SPACE
+                                  lf_msg sy-msgv2 space space "1590996
+                         CHANGING et_messages.
+      EXIT.
+    ENDIF.
+    IF NOT ct_verko IS INITIAL.
+      REFRESH: lt_header_cap, lt_header_add,
+               lt_header_tra, lt_hu_items, lt_hdr_pro.
+      lf_vbeln = gs_header51-objkey.                        "note 682506
+      INCLUDE incl_mv50a_packing_create.
+    ENDIF.
+    IF NOT lt_header_pro IS INITIAL.
+* status wird nicht mehr benutzt:
+      MODIFY lt_header_pro FROM ls_header_pro
+          TRANSPORTING status WHERE status NE space."#EC CI_SORTSEQ
+
+      IF NOT lt_hdr_pro IS INITIAL.
+*        append lines of LT_HEADER_PRO to lt_hdr_pro.          "n_792080
+        lt_hdr_pro_tmp = lt_header_pro.
+        INSERT LINES OF lt_hdr_pro_tmp INTO TABLE lt_hdr_pro. "n_792080
+      ELSE.
+        lt_hdr_pro = lt_header_pro.
+      ENDIF.
+    ENDIF.
+*... automatic packing via TA-creation only for Headers
+    IF gs_header51-object = gc_obj_05.
+      REFRESH: lt_hu_items.
+    ENDIF.
+    CALL FUNCTION 'V51F_PACKING_CREATE'
+      EXPORTING
+        it_header_prop = lt_hdr_pro
+        it_header_capa = lt_header_cap
+        it_header_add  = lt_header_add
+        it_header_tra  = lt_header_tra
+        it_items       = lt_hu_items
+        it_item_sernr  = lt_hu_item_sernr                   "HP_511691
+      IMPORTING
+        et_header      = et_header
+      CHANGING
+        ct_messages    = et_messages
+      EXCEPTIONS
+        OTHERS         = 99.
+    IF NOT sy-subrc IS INITIAL OR et_header IS INITIAL.
+      EXIT.
+    ENDIF.
+    CHECK NOT et_header[] IS INITIAL.
+    ef_existing_data = charx.
+    REFRESH: ct_verko, ct_verpo, lt_kompv, lt_pdshpunit.
+    PERFORM create_kompv USING    et_header
+                         CHANGING lt_kompv.
+    CHECK NOT lt_kompv[] IS INITIAL.
+  ENDDO.
+
+ENDFUNCTION.
+*---------------------------------------------------------------------*
+*            FORM CREATE_KOMPV
+*---------------------------------------------------------------------*
+FORM create_kompv USING    it_vekp TYPE vsep_t_vekp
+                  CHANGING ct_kompv TYPE vsep_t_kompv.
+  DATA: ls_kompv TYPE kompv.
+  FIELD-SYMBOLS: <header> TYPE vekpvb.
+
+  LOOP AT it_vekp ASSIGNING <header> WHERE uevel EQ space.  "n_1045112
+    IF gs_header51-object = gc_obj_01 OR
+       gs_header51-object = gc_obj_03.
+      CHECK <header>-vpobj = gs_header51-object AND
+            <header>-vpobjkey = gs_header51-objkey.
+    ENDIF.
+    IF <header>-magrv IS INITIAL.
+      CONTINUE.
+    ENDIF.
+    ls_kompv-pobjkey = <header>-exidv.
+    ls_kompv-velin   = '3'.
+    MOVE-CORRESPONDING <header> TO ls_kompv.
+    ls_kompv-matnr = <header>-vhilm.
+    ls_kompv-opmng = 1.
+    ls_kompv-vrkme = <header>-meins.
+    ls_kompv-gewei = <header>-gewei_max.
+    ls_kompv-volum = <header>-btvol.
+    ls_kompv-voleh = <header>-voleh_max.
+    APPEND ls_kompv TO ct_kompv.
+  ENDLOOP.
+ENDFORM.                    "CREATE_KOMPV
+*---------------------------------------------------------------------*
+*             FORM KOMPV_VERVOLLSTAENDIGEN
+*---------------------------------------------------------------------*
+FORM kompv_vervollstaendigen CHANGING ct_kompv TYPE vsep_t_kompv.
+  DATA: ls_kompv TYPE kompv, ls_vekp TYPE vekpvb, ls_v51vp TYPE v51vp.
+
+  LOOP AT ct_kompv INTO ls_kompv WHERE NOT pobjpos = space.
+    CLEAR ls_v51vp.
+    ls_v51vp-vbeln = ls_kompv-pobjkey.
+    ls_v51vp-posnr = ls_kompv-pobjpos.
+    CALL FUNCTION 'V51P_FIND_MATERIAL'
+      EXPORTING
+        is_v51vp         = ls_v51vp
+      IMPORTING
+        es_material_item = ls_v51vp
+      EXCEPTIONS
+        mat_not_found    = 01
+        OTHERS           = 99.
+    IF NOT sy-subrc IS INITIAL.
+      DELETE ct_kompv.
+      CONTINUE.
+    ENDIF.
+    MOVE-CORRESPONDING ls_v51vp TO ls_kompv.
+*... Mengen analog zu aufbauen packgood im gf01 (opmng durch move-corr..
+    CASE gs_header51-object.                                "HP_534053
+      WHEN gc_obj_01 OR gc_obj_04.
+        IF ls_v51vp-hu_lgort CA 'CDX'.
+          ls_kompv-opmng = ls_v51vp-lf_opmng.
+        ENDIF.
+      WHEN gc_obj_02.
+        IF ls_v51vp-lfimg < ls_v51vp-opmng.
+          ls_kompv-opmng = ls_v51vp-lfimg.
+        ENDIF.
+      WHEN gc_obj_03.
+      WHEN OTHERS.
+        ls_kompv-opmng = ls_v51vp-lfimg.
+    ENDCASE.
+    IF NOT ls_kompv-opmng > 0.
+      DELETE ct_kompv.
+      CONTINUE.
+    ENDIF.
+    MODIFY ct_kompv FROM ls_kompv.
+  ENDLOOP.
+  LOOP AT ct_kompv INTO ls_kompv WHERE velin = '3'.
+    ls_vekp-venum = ls_kompv-venum.
+    IF ls_vekp-venum IS INITIAL.
+      ls_vekp-exidv = ls_kompv-pobjkey.
+    ENDIF.
+    CALL FUNCTION 'V51P_FIND_HEADER'
+      EXPORTING
+        is_vekp   = ls_vekp
+      IMPORTING
+        es_header = ls_vekp
+      EXCEPTIONS
+        not_found = 01
+        OTHERS    = 99.
+    IF NOT sy-subrc IS INITIAL OR NOT ls_vekp-uevel IS INITIAL.
+      DELETE ct_kompv.
+      CONTINUE.
+    ENDIF.
+    MOVE-CORRESPONDING ls_vekp TO ls_kompv.
+    ls_kompv-matnr = ls_vekp-vhilm.
+    ls_kompv-opmng = 1.
+    ls_kompv-vrkme = ls_vekp-meins.
+    ls_kompv-gewei = ls_vekp-gewei_max.
+    ls_kompv-volum = ls_vekp-btvol.
+    ls_kompv-voleh = ls_vekp-voleh_max.
+    MODIFY ct_kompv FROM ls_kompv.
+  ENDLOOP.
+ENDFORM.                    "KOMPV_VERVOLLSTAENDIGEN
+*---------------------------------------------------------------------*
+*               FORM KOMPV_AUFBAUEN_AUS_V51VP
+*---------------------------------------------------------------------*
+FORM kompv_aufbauen_aus_v51vp USING if_objkey TYPE v51ko-objkey
+                              CHANGING ct_kompv TYPE vsep_t_kompv.
+  DATA: ls_kompv TYPE kompv, ls_v51vp TYPE v51vp, ls_vekp TYPE vekpvb,
+        lf_vbeln TYPE v51vp-vbeln.
+  lf_vbeln = if_objkey(10).
+  LOOP AT gt_v51vp INTO ls_v51vp WHERE vbeln = lf_vbeln.
+    MOVE-CORRESPONDING ls_v51vp TO ls_kompv.
+    IF gs_header51-object = gc_obj_01 AND ls_v51vp-hu_lgort CA 'CDX'.
+      ls_kompv-opmng = ls_v51vp-lf_opmng.
+    ENDIF.
+    IF gs_header51-object = gc_obj_12 OR
+       gs_header51-object = gc_obj_05 OR
+       gs_header51-object = gc_obj_07 OR
+       gs_header51-object = gc_obj_09.
+      ls_kompv-opmng = ls_v51vp-lfimg.
+    ENDIF.
+    ls_kompv-velin = '1'.
+    ls_kompv-pobjkey = ls_v51vp-vbeln.
+    ls_kompv-pobjpos = ls_v51vp-posnr.
+    CHECK ls_kompv-opmng > 0.
+    APPEND ls_kompv TO ct_kompv.
+  ENDLOOP.
+ENDFORM.                    "KOMPV_AUFBAUEN_AUS_V51VP
+*---------------------------------------------------------------------*
+FORM determine_packgoods USING it_kompv TYPE vsep_t_kompv
+                         CHANGING et_packgoods TYPE pdt_packgoods.
+  DATA: ls_packgood LIKE packgood, ls_kompv LIKE kompv,
+        lf_join     TYPE char4.
+
+  DATA: ls_v51vp_help TYPE v51vp.                                       "{ ENHO AUTO_VHU_PO_V51P_PACKING_DE000 IS-A-HUM AM_HUM }
+* IS_AUTO_VHU: Enhancement core packing dialog with HU references HURES "{ ENHO AUTO_VHU_PO_V51P_PACKING_DE000 IS-A-HUM AM_HUM }
+ENHANCEMENT-POINT V51P_PACKING_DETERMINATION_01 SPOTS ES_SAPLV51P STATIC.
+  LOOP AT it_kompv INTO ls_kompv WHERE velin = '1'.
+    CLEAR ls_packgood.
+    MOVE-CORRESPONDING gs_v51ko TO ls_packgood.
+    ls_packgood-versart = gs_v51ko-vsart.
+    MOVE-CORRESPONDING ls_kompv TO ls_packgood.
+    ls_packgood-maxqua = ls_kompv-opmng.
+ENHANCEMENT-SECTION     V51P_PACKING_DETERMINATION_02 SPOTS ES_SAPLV51P.
+    CASE gs_header51-object.
+      WHEN '01' OR '04'.
+        ls_packgood-kunwe = gs_header51-kunnr.
+      WHEN '03'.
+        ls_packgood-lifnr = gs_header51-kunnr.
+        "{ Begin ENHO AUTO_VHU_PO_V51P_PACKING_DE000 IS-A-HUM AM_HUM }
+* for HUs with reference complete packing determination fields from
+* references sales order, purchase order or delivery
+* DI46C2-CRT4-HUM/PL
+      WHEN '06' OR '07' OR '09' OR '12'.
+        IF NOT ls_kompv-pobjpos = space.
+          CLEAR ls_v51vp_help.
+          ls_v51vp_help-vbeln = ls_kompv-pobjkey.
+          ls_v51vp_help-posnr = ls_kompv-pobjpos.
+          CALL FUNCTION 'V51P_FIND_MATERIAL'
+            EXPORTING
+              is_v51vp         = ls_v51vp_help
+            IMPORTING
+              es_material_item = ls_v51vp_help
+            EXCEPTIONS
+              mat_not_found    = 01
+              OTHERS           = 99.
+          IF NOT ls_v51vp_help-custord IS INITIAL.
+            PERFORM add_packinst_determin_fields
+                                    USING    ls_v51vp_help-custord
+                                             ls_v51vp_help-custordit
+                                             ls_v51vp_help-purord
+                                             ls_v51vp_help-purordit
+                                             ls_v51vp_help-dlvry
+                                             ls_v51vp_help-dlvryit
+                                    CHANGING ls_packgood.
+          ENDIF.
+        ENDIF.
+* IS_AUTO_VHU: Enhancement core packing dialog with HU references HURES
+        "{ End ENHO AUTO_VHU_PO_V51P_PACKING_DE000 IS-A-HUM AM_HUM }
+    ENDCASE.
+END-ENHANCEMENT-SECTION.
+    ls_packgood-qunit_a = ls_kompv-vrkme.
+    ls_packgood-qunit_b = ls_kompv-meins.
+    ls_packgood-docnum  = ls_kompv-pobjkey.
+    ls_packgood-docitem = ls_kompv-pobjpos.
+* HU02 allows Materials Of Different Groups to be Packed together on to
+* the same Packing Material Hence the below two lines are commented out.
+*   ls_packgood-joingrp = ls_kompv-lgort.                  "NOTE 537593.
+*   ls_packgood-joingrp+4 = ls_kompv-umlgo.                "NOTE 537593.
+    APPEND ls_packgood TO et_packgoods.
+  ENDLOOP.
+ENDFORM.                    "DETERMINE_PACKGOODS
+
+"{ Begin ENHO AUTO_VHU_PO_V51P_PACKING_DE000 IS-A-HUM AM_HUM }
+*&---------------------------------------------------------------------*
+*&      Form  add_packinst_determin_fields
+*&---------------------------------------------------------------------*
+FORM add_packinst_determin_fields USING uf_custord   TYPE pl_custord
+                                        uf_custordit TYPE pl_custordit
+                                        uf_purord    TYPE pl_purord
+                                        uf_purordit  TYPE pl_purordit
+                                        uf_dlvry     TYPE pl_dlvry
+                                        uf_dlvryit   TYPE pl_dlvryit
+                               CHANGING cs_packgood  TYPE packgood.
+
+  DATA: ls_vbak    TYPE vbak,
+        ls_vbapvb  TYPE vbapvb,
+        ls_vbpa_ag TYPE vbpa,           "Auftraggeber
+        ls_vbpa_we TYPE vbpa,           "Warenempf.
+        ls_vbkd    TYPE vbkd,
+        ls_likp    TYPE likpvb,
+        ls_lips    TYPE lipsvb,
+        ls_ekko    TYPE ekko,
+        ls_ekpo    TYPE ekpo,
+        ls_ekpv    TYPE ekpv.
+
+  IF NOT uf_custord IS INITIAL.
+
+    CALL FUNCTION 'VHUMISC_READ_CUSTORD'
+      EXPORTING
+        if_custord          = uf_custord
+        if_custordit        = uf_custordit
+      IMPORTING
+        es_vbak             = ls_vbak
+        es_vbapvb           = ls_vbapvb
+        es_vbpa_ag          = ls_vbpa_ag
+        es_vbpa_we          = ls_vbpa_we
+        es_vbkd             = ls_vbkd
+      EXCEPTIONS
+        custord_not_found   = 1
+        custordit_not_found = 2
+        too_much_custordit  = 3
+        vbkd_not_determined = 4
+        vbpa_not_determined = 5
+        OTHERS              = 6.
+
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+
+*   change customer data
+    cs_packgood-kunag     = ls_vbpa_ag-kunnr.
+    cs_packgood-kunwe     = ls_vbpa_we-kunnr.
+    cs_packgood-ablad     = ls_vbpa_we-ablad.
+    cs_packgood-abrvw     = ls_vbak-abrvw.
+    cs_packgood-route     = ls_vbapvb-route.
+    cs_packgood-vstel     = ls_vbapvb-vstel.
+*   cs_packgood-versart   = ls_vbkd-vsart.  already happened before
+
+  ELSEIF NOT uf_purord IS INITIAL.
+
+    CALL FUNCTION 'VHUMISC_READ_PURORD'
+      EXPORTING
+        if_purord           = uf_purord
+        if_purordit         = uf_purordit
+      IMPORTING
+        es_ekko             = ls_ekko
+        es_ekpo             = ls_ekpo
+        es_ekpv             = ls_ekpv
+      EXCEPTIONS
+        purord_not_found    = 1
+        purordit_not_found  = 2
+        too_much_purordit   = 3
+        ekpv_not_determined = 4
+        OTHERS              = 5.
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+
+*   change customer data
+    cs_packgood-kunag     = ls_ekpv-kunag.
+    cs_packgood-kunwe     = ls_ekpv-kunnr.
+    cs_packgood-ablad     = ls_ekpv-ablad.
+*   cs_packgood-abrvw     = ls_vbak-abrvw. "Gibt es das bei Bestellungen
+    cs_packgood-route     = ls_ekpv-route.
+    cs_packgood-vstel     = ls_ekpv-vstel.
+*   cs_packgood-versart   = ls_vbkd-vsart. "Gibt es das bei Bestellungen
+
+  ELSEIF NOT uf_dlvry IS INITIAL.
+
+    CALL FUNCTION 'VHUMISC_READ_DLVRY'
+      EXPORTING
+        if_dlvry          = uf_dlvry
+        if_dlvryit        = uf_dlvryit
+      IMPORTING
+        es_likp           = ls_likp
+        es_lips           = ls_lips
+      EXCEPTIONS
+        dlvry_not_found   = 1
+        dlvryit_not_found = 2
+        too_much_dlvryit  = 3
+        OTHERS            = 4.
+
+    IF sy-subrc <> 0.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+    ENDIF.
+
+*   change customer data
+    cs_packgood-kunag     = ls_likp-kunag.
+    cs_packgood-kunwe     = ls_likp-kunnr.
+    cs_packgood-ablad     = ls_likp-ablad.
+    cs_packgood-abrvw     = ls_lips-abrvw.
+    cs_packgood-route     = ls_likp-route.
+    cs_packgood-vstel     = ls_likp-vstel.
+*   cs_packgood-versart   = ls_vbkd-vsart.  already happened before
+
+  ENDIF.
+
+ENDFORM.                    " add_packinst_determin_fields
+* IS_AUTO_VHU: Enhancement core packing dialog with HU references HURES
+"{ End ENHO AUTO_VHU_PO_V51P_PACKING_DE000 IS-A-HUM AM_HUM }
+
+ENHANCEMENT-POINT V51P_PACKING_DETERMINATION_03 SPOTS ES_SAPLV51P STATIC.
+"$$
