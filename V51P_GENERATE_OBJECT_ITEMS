@@ -1,0 +1,1795 @@
+FUNCTION v51p_generate_object_items.
+*"----------------------------------------------------------------------
+*"*"Local Interface:
+*"  IMPORTING
+*"     REFERENCE(IF_GENERATE) TYPE  XFELD DEFAULT SPACE
+*"     REFERENCE(IS_OBJECT) TYPE  HUM_OBJECT
+*"     REFERENCE(ITX_DELIVERIES) TYPE  LESHP_DELIVERY_T OPTIONAL
+*"  TABLES
+*"      ET_RET STRUCTURE  BAPIRET2 OPTIONAL
+*"      ET_REQ STRUCTURE  BAPIDELICIOUSREQUEST OPTIONAL
+*"  CHANGING
+*"     REFERENCE(CT_GENPOS) TYPE  HUM_GENPOS_T OPTIONAL
+*"  EXCEPTIONS
+*"      FATAL_ERROR
+*"----------------------------------------------------------------------
+* >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+* !!! THIS FUNCTION MODULE WAS SIGNIFICANTLY MODIFIED BY NOTE 776230 !!!
+* not all changes were explicitely marked - this concerns especially
+* changes in comments entered to increase readability of the coding
+* >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+  IF NOT gs_header51-object = gc_obj_04.
+    PERFORM create_del_item_old USING if_generate ct_genpos is_object.
+  ELSE.
+    TYPES: BEGIN OF ltyp_dlvstatus,
+             vbeln      TYPE vv_belnr,
+             kunnr      TYPE kunnr,
+             chgeallowd TYPE xfeld,
+           END OF ltyp_dlvstatus.
+
+    TYPES    ttyp_dlvstatus TYPE SORTED TABLE OF ltyp_dlvstatus
+             WITH UNIQUE KEY vbeln.
+
+
+    DATA: lt_header TYPE hum_hu_header_t,
+          lt_items  TYPE hum_hu_item_t,
+          lt_req    TYPE bapideliciousrequest OCCURS 0.
+    DATA: ls_venum    TYPE huitem_key,
+          ls_header51 TYPE header51,
+          ls_header   TYPE vekpvb,
+          ls_item     TYPE vepovb,
+          ls_genpos   TYPE hum_del_genpos,
+          ls_matnr    TYPE v_matnr_hu,
+          ls_tvty     TYPE tvty,
+          ls_req      TYPE bapideliciousrequest.
+    DATA: lf_delivery     TYPE vv_belnr,
+          lf_tabix        TYPE sytabix,
+          lf_del          TYPE xfeld,
+          lf_max          TYPE sytabix,
+          lf_vbeln        TYPE vv_belnr,
+          lf_kunnr        TYPE kunnr,
+          lf_subrc        TYPE sysubrc,
+****          lf_z         TYPE sytabix,
+****          lf_n         TYPE sytabix,
+****          lf_gewei_tmp TYPE gewei,
+****          lf_voleh_tmp TYPE voleh,
+****          lf_gew       TYPE gewei,"                            SP_574129
+****          lf_vol       TYPE voleh,
+****          lt_ret       TYPE bapiret2 OCCURS 0 WITH HEADER LINE."n_554293
+****
+****
+****    FIELD-SYMBOLS: <item>       TYPE vepovb,
+****                   <header>     TYPE vekpvb,
+****                   <header_top> TYPE vekpvb,
+****                   <header2>    TYPE vekpvb,
+****                   <x_del>      TYPE leshp_delivery_s,
+****                   <vbpa>       TYPE vbpavb,
+****                   <vepo>       TYPE vepovb.
+****
+****    SORT ct_genpos BY vhilm vbeln werks lgort.
+****    MODIFY gt_xvekp FROM ls_header TRANSPORTING liefnr kunnr
+****                                   WHERE NOT liefnr IS initial OR
+****                                         NOT kunnr IS initial.
+*****.. löschen von generierten PHM-Positionen gelöschter HUs
+****   LOOP AT gt_yvepo ASSIGNING <item> WHERE NOT posnr_gen IS initial AND
+****                                           updkz CA 'DE'.
+****      CLEAR: ls_genpos, ls_venum.
+****      INCLUDE incl_obj_item_crea01.
+****    ENDLOOP.
+*****eject
+*****.. Liefermenge der zu löschenden HUs reduzieren
+**** LOOP AT gt_yvekp ASSIGNING <header> WHERE NOT posnr_gen IS initial AND
+****                                           updkz CA 'DE'.
+****      CHECK <header>-vpobj = is_object-object.
+****      CLEAR: ls_genpos, ls_venum.
+****      INCLUDE incl_obj_item_crea02.
+****    ENDLOOP.
+*****eject
+***** Im folgenen nur für Transport da zu schlechte Performance für LF
+
+          lf_veanz        TYPE veanz,
+          lt_ret          TYPE bapiret2 OCCURS 0 WITH HEADER LINE, "n_554293
+          lf_nestlevels   TYPE i,                           "v_776230
+          ls_dlvstatus    TYPE ltyp_dlvstatus,
+          lt_dlvstatus    TYPE ttyp_dlvstatus,
+          lf_dlvlink      TYPE xfeld,
+          lf_dlvlinkprio1 TYPE xfeld,
+          lf_dlvlinkprio2 TYPE xfeld,
+          lf_dlvlinkprio3 TYPE xfeld,
+          lf_auxpackmat   TYPE xfeld.
+
+    FIELD-SYMBOLS: <item>         TYPE vepovb,
+                   <header>       TYPE vekpvb,
+                   <header_top>   TYPE vekpvb,
+                   <header_kzunt> TYPE vekpvb,
+                   <header2>      TYPE vekpvb,
+                   <header_gt>    TYPE vekpvb,
+                   <x_del>        TYPE leshp_delivery_s,
+                   <vbpa>         TYPE vbpavb,
+                   <vepo>         TYPE vepovb.
+
+
+
+    SORT ct_genpos BY vhilm vbeln werks lgort.
+    MODIFY gt_xvekp FROM ls_header TRANSPORTING liefnr kunnr
+                                   WHERE NOT liefnr IS INITIAL OR
+                                         NOT kunnr IS INITIAL.
+*   remark: depending on the delivery status etc. it might be that the
+*   modification of delivery items for packaging material isn't
+*   allowed anymore. the corresponding checks are implemented on the
+*   one hand in this function module (when modifying an already
+*   existing item) and on the other hand in LV51PF42 (when creating
+*   a new item).
+*   extract dlv. movement status into lt_dlvstatus for faster checking
+    LOOP AT itx_deliveries ASSIGNING <x_del>.
+      IF <x_del>-head_status-wbstk = 'C'.
+        CLEAR ls_dlvstatus-chgeallowd.
+      ELSE.
+        ls_dlvstatus-chgeallowd = charx.
+      ENDIF.
+      ls_dlvstatus-vbeln = <x_del>-head-vbeln(10).
+      IF cl_sd_doc_category_util=>is_delivery_outgoing( iv_vbtyp = <x_del>-head-vbtyp ).   "(Ret.LF hat auch WE!)
+        ls_dlvstatus-kunnr = <x_del>-head-kunnr.
+      ELSE.
+        ls_dlvstatus-kunnr = <x_del>-head-lifnr.
+      ENDIF.
+      INSERT ls_dlvstatus INTO TABLE lt_dlvstatus.
+    ENDLOOP.
+
+***********************************************************************
+*     PROCESSING DELIVERY ITEMS FOR DELETED HUS                       *
+***********************************************************************
+
+*.. reduce delivery quantity for deleted aux.pack.mat
+    LOOP AT gt_yvepo ASSIGNING <item>
+                   WHERE NOT posnr_gen IS INITIAL
+                   AND updkz CA 'DE'.
+      CLEAR: ls_genpos, ls_venum.
+      IF is_object-object = '04'.             "Transport
+        READ TABLE gt_yvekp ASSIGNING <header>
+                            WITH KEY venum = <item>-venum
+                            BINARY SEARCH.
+        IF NOT sy-subrc IS INITIAL.
+          READ TABLE gt_xvekp ASSIGNING <header>
+                              WITH KEY venum = <item>-venum
+                              BINARY SEARCH.
+          CHECK sy-subrc IS INITIAL.
+        ENDIF.
+        CHECK <header>-vpobj = gc_obj_04.
+        lf_delivery = <item>-vbeln.
+      ELSE.
+        lf_delivery = is_object-objkey(10).
+      ENDIF.
+*     check if item change is possible for current delivery
+      IF NOT lf_delivery IS INITIAL.
+        READ TABLE lt_dlvstatus INTO ls_dlvstatus
+                               WITH KEY vbeln = lf_delivery
+                               BINARY SEARCH.
+        CHECK sy-subrc IS INITIAL.
+        CHECK NOT ls_dlvstatus-chgeallowd IS INITIAL.
+      ENDIF.
+
+      READ TABLE ct_genpos INTO ls_genpos
+                           WITH KEY vhilm = <item>-matnr
+                                    vbeln = lf_delivery
+                                    posnr = <item>-posnr_gen
+                                    BINARY SEARCH.
+      lf_tabix = sy-tabix.
+      lf_veanz = <item>-veanz.
+
+      IF sy-subrc IS INITIAL.
+*       delivery item line still exists
+        ls_genpos-lfimg_new = ls_genpos-lfimg_new - lf_veanz.
+        ls_venum-venum = <item>-venum.
+        ls_venum-vepos = <item>-vepos.
+        CLEAR: <item>-posnr_gen, <item>-vbeln.
+        IF <item>-updkz = 'E'.
+          CLEAR <item>.
+        ENDIF.
+        IF ls_genpos-updkz IS INITIAL.
+          ls_genpos-updkz = 'U'.
+        ENDIF.
+        MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+      ELSE.
+        lf_veanz =  -1 * lf_veanz.
+        PERFORM create_genpos_entry_aux
+                                USING    <item>-venum
+                                         <item>-vepos
+                                         <item>-vbeln
+                                         lf_veanz
+                                CHANGING ct_genpos
+                                         lf_tabix.
+        CLEAR <item>-posnr_gen.
+        IF <item>-updkz = 'E'.
+          CLEAR <item>.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+
+*.. Reduce delivery quantity for deleted HUs
+    LOOP AT gt_yvekp ASSIGNING <header>
+                   WHERE NOT posnr_gen IS INITIAL
+                   AND updkz CA 'DE'.
+      CHECK <header>-vpobj = is_object-object.
+      CLEAR: ls_genpos, ls_venum.
+*     check if item change is possible for current delivery
+      IF NOT  <header>-vbeln_gen IS INITIAL.
+        READ TABLE lt_dlvstatus INTO ls_dlvstatus
+                               WITH KEY vbeln = <header>-vbeln_gen
+                               BINARY SEARCH.
+        CHECK sy-subrc IS INITIAL.
+        CHECK NOT ls_dlvstatus-chgeallowd IS INITIAL.
+      ENDIF.
+      READ TABLE ct_genpos INTO ls_genpos
+                           WITH KEY vhilm = <header>-vhilm
+                                    vbeln = <header>-vbeln_gen
+                                    posnr = <header>-posnr_gen
+                                    BINARY SEARCH.
+      lf_tabix = sy-tabix.
+      IF sy-subrc IS INITIAL.
+*       delivery item line still exists
+        ls_genpos-lfimg_new = ls_genpos-lfimg_new - 1.
+        CLEAR: <header>-vbeln_gen, <header>-posnr_gen.
+        IF <header>-updkz = 'E'.
+          CLEAR <header>.
+        ENDIF.
+        ls_genpos-updkz = 'U'.
+        MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+      ELSE.
+*       delivery item line doesn't exist anymore
+        PERFORM create_genpos_entry
+                               USING    <header>-venum
+                                        -1
+                                        <header>-vbeln_gen
+                               CHANGING ct_genpos
+                                        lf_tabix.
+        CLEAR: <header>-vbeln_gen, <header>-posnr_gen.
+        IF <header>-updkz = 'E'.
+          CLEAR <header>.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+
+
+*   Im folgenen nur für Transport da zu schlechte Performance für LF
+    IF is_object-object = gc_obj_04.
+      CLEAR: ls_header-selkz, ls_header-kzunt.
+      MODIFY gt_xvekp FROM ls_header TRANSPORTING selkz kzunt
+                                     WHERE NOT selkz IS INITIAL OR
+                                           NOT kzunt IS INITIAL.
+      LOOP AT gt_xvekp ASSIGNING <header_top> WHERE uevel IS INITIAL.
+        CLEAR: lf_del, lf_max.
+        REFRESH: lt_header, lt_items.
+        IF NOT <header_top>-vpobj = gc_obj_12.
+*         leave if HU doesn't belong to Transport
+          CHECK <header_top>-vpobj = is_object-object.
+        ELSE.
+          lf_del = charx.
+        ENDIF.
+        CALL FUNCTION 'HU_ONE_HU_GET'
+          EXPORTING
+            if_venum     = <header_top>-venum
+          IMPORTING
+            ef_level_max = lf_max
+            et_header    = lt_header
+            et_items     = lt_items.
+
+***********************************************************************
+*     PROCESSING DELIVERY ITEMS FOR UNASSIGNED HUS                    *
+***********************************************************************
+
+        IF NOT lf_del IS INITIAL.     "Gibts im ersten Schr. nicht!
+          LOOP AT lt_header ASSIGNING <header>
+                            WHERE NOT posnr_gen IS INITIAL.
+            CLEAR: ls_genpos, ls_venum.
+*           delivery item already exists but should be deleted
+            READ TABLE ct_genpos INTO ls_genpos
+                               WITH KEY vhilm = <header>-vhilm
+                                        vbeln = <header>-vbeln_gen
+                                        posnr = <header>-posnr_gen
+                                        BINARY SEARCH.
+            lf_subrc = sy-subrc.
+            lf_tabix = sy-tabix.
+            IF lf_subrc IS INITIAL.
+*             corresponding delivery item line exists already
+              IF ls_genpos-updkz <> 'I'.
+                ls_genpos-updkz = 'U'.
+              ENDIF.
+              ls_genpos-lfimg_new = ls_genpos-lfimg_new - 1.
+              MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+            ELSE.
+*             create a new delivery item line
+*             we enter this case only in case there were already
+*             inconsistencies or manually deleted delivery items
+              PERFORM create_genpos_entry
+                                   USING    <header>-venum
+                                            -1
+                                            <header>-vbeln_gen
+                                   CHANGING ct_genpos
+                                            lf_tabix.
+            ENDIF.
+            <header>-updkz = 'U'.
+            CLEAR: <header>-vbeln_gen, <header>-posnr_gen.
+            MODIFY gt_xvekp FROM <header>
+                             TRANSPORTING liefnr kunnr
+                             WHERE venum = <header>-venum.
+          ENDLOOP.
+          DELETE lt_items WHERE velin NE '2'.
+          LOOP AT lt_items ASSIGNING <item>
+                           WHERE NOT posnr_gen IS INITIAL.
+*           delivery item already exists but should be deleted
+            CLEAR: ls_genpos, ls_venum.
+            READ TABLE ct_genpos INTO ls_genpos
+                            WITH KEY vhilm = <item>-matnr
+                                     vbeln = <item>-vbeln
+                                     posnr = <item>-posnr_gen
+                                     BINARY SEARCH.
+            lf_subrc = sy-subrc.
+            lf_tabix = sy-tabix.
+*           for withdrawl we have to take the quantities at the
+*           item creation point of time ...
+            CLEAR lf_veanz.
+            READ TABLE gt_yvepo ASSIGNING <vepo>
+                          WITH KEY venum = <item>-venum
+                                   vepos = <item>-vepos
+                          BINARY SEARCH.
+            CHECK sy-subrc IS INITIAL.
+            lf_veanz = <vepo>-veanz.
+
+            IF lf_subrc IS INITIAL.
+*             corresponding delivery item line exists already
+              IF ls_genpos-updkz <> 'I'.
+                ls_genpos-updkz = 'U'.
+              ENDIF.
+              ls_genpos-lfimg_new
+                       = ls_genpos-lfimg_new - lf_veanz.
+              MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+            ELSE.
+*             create a new delivery item line
+              lf_veanz = -1 * lf_veanz.
+              PERFORM create_genpos_entry_aux
+                                   USING    <item>-venum
+                                            <item>-vepos
+                                            <item>-vbeln
+                                            lf_veanz
+                                   CHANGING ct_genpos
+                                            lf_tabix.
+            ENDIF.
+            <item>-updkz = 'U'.
+            CLEAR <item>-posnr_gen.
+          ENDLOOP.
+          CONTINUE.
+        ENDIF.
+
+***********************************************************************
+*     DETERMINE DELIVERY RELATION FOR "NON-EMPTY-HUS"                 *
+***********************************************************************
+
+        DELETE lt_items WHERE velin EQ '2'.
+        IF sy-subrc IS INITIAL.
+          lf_auxpackmat = charx.
+        ENDIF.
+        SORT lt_header BY histu DESCENDING. "hirarchy bottom-up
+        SORT lt_items BY venum vepos.
+        LOOP AT lt_header ASSIGNING <header>.
+          CLEAR: ls_genpos, ls_venum.
+          IF <header>-vpobj NE is_object-object.
+            READ TABLE lt_dlvstatus INTO ls_dlvstatus
+                                   WITH KEY vbeln = <header>-vpobjkey
+                                   BINARY SEARCH.
+            CHECK sy-subrc IS INITIAL.
+            <header>-kunnr  = ls_dlvstatus-kunnr.
+            <header>-liefnr = <header>-vpobjkey.
+            <header>-selkz  = charx.
+            CONTINUE.
+          ELSE.   "Transport-HU (im ersten Schritt)
+*           Dynamic fields "kunnr" / "vbeln" are filled to this logic:
+*           Prio1: the HU itself contains material belonging to a
+*                  delivery for which the HU already has an item
+*           Prio2: the HU contains a material for a different delivery
+*                  link than vbeln_gen (also for initial vbeln_gen)
+*           Prio3: the HU contains no material, but the delivery for
+*                  which it has an item is contained in lower level HU
+            READ TABLE lt_items TRANSPORTING NO FIELDS
+                                WITH KEY venum = <header>-venum
+                                BINARY SEARCH.
+            CHECK sy-subrc IS INITIAL. "leave if empty lowest level HU
+            CLEAR: lf_dlvlinkprio1, lf_dlvlinkprio2, lf_dlvlinkprio3.
+            LOOP AT lt_items ASSIGNING <item> FROM sy-tabix.
+              CLEAR: ls_genpos.
+              IF NOT <item>-venum = <header>-venum. EXIT. ENDIF.
+              CASE <item>-velin.
+                WHEN '1'.
+                  lf_vbeln = <item>-vbeln.
+                  READ TABLE lt_dlvstatus INTO ls_dlvstatus
+                           WITH KEY vbeln = lf_vbeln
+                           BINARY SEARCH.                     .
+                  CHECK sy-subrc IS INITIAL.
+                  lf_kunnr = ls_dlvstatus-kunnr.
+                  IF <header>-selkz  IS INITIAL.
+*                   before current loop no delivery link found
+                    IF lf_vbeln = <header>-vbeln_gen.
+                      lf_dlvlinkprio1 = charx.
+                    ELSE.
+*                     delivery link according to material item
+                      lf_dlvlinkprio2 = charx.
+                    ENDIF.
+                    <header>-liefnr = lf_vbeln.
+                    <header>-kunnr  = lf_kunnr.
+                    <header>-selkz  = 'X'.
+                  ELSE.
+*                   delivery link already found in a former loop
+                    IF <header>-kunnr <> lf_kunnr.
+                      CLEAR lf_kunnr.
+                      CLEAR <header>-kunnr.
+                      IF <header>-kzpgn CA ' A'.
+                        EXIT.
+                      ENDIF.
+                    ENDIF.
+
+                    IF lf_dlvlinkprio1 IS INITIAL.
+                      IF lf_vbeln = <header>-vbeln_gen.
+                        <header>-liefnr = lf_vbeln.
+                        <header>-kunnr  = lf_kunnr.
+                        <header>-selkz  = 'X'.
+                        lf_dlvlinkprio1 = charx.
+                      ELSEIF lf_dlvlinkprio2 IS INITIAL.
+                        <header>-liefnr = lf_vbeln.
+                        <header>-kunnr  = lf_kunnr.
+                        <header>-selkz  = 'X'.
+                        lf_dlvlinkprio2 = charx.
+                      ENDIF.
+                    ELSE.
+*                     nothing should overwrite a prio1 Delivery Link
+                    ENDIF.
+                  ENDIF.
+
+                WHEN '2'.                 "wurden vorher rausgelöscht
+
+                WHEN '3'.
+                  READ TABLE lt_header ASSIGNING <header2>
+                                       WITH KEY venum = <item>-unvel.
+                  CHECK sy-subrc IS INITIAL.
+                  lf_vbeln = <header2>-liefnr.
+                  lf_kunnr = <header2>-kunnr.
+                  IF NOT lf_vbeln IS INITIAL.
+                    IF <header>-selkz  IS INITIAL.
+*                     before current loop no delivery link found
+                      IF lf_vbeln = <header>-vbeln_gen.
+                        lf_dlvlinkprio3 = charx.
+                      ENDIF.
+                      <header>-liefnr = lf_vbeln.
+                      <header>-kunnr  = lf_kunnr.
+                      <header>-selkz  = 'X'.
+                    ELSE.
+*                     deliv. link already exists from a former loop
+                      IF <header>-kunnr <> lf_kunnr.
+                        CLEAR lf_kunnr.
+                        CLEAR <header>-kunnr.
+                        IF <header>-kzpgn CA ' A'.
+                          EXIT.
+                        ENDIF.
+                      ENDIF.
+
+                      IF lf_dlvlinkprio1 IS INITIAL
+                             AND lf_dlvlinkprio2 IS INITIAL.
+                        IF lf_vbeln = <header>-vbeln_gen.
+                          <header>-liefnr = lf_vbeln.
+                          <header>-kunnr  = lf_kunnr.
+                          <header>-selkz  = 'X'.
+                          lf_dlvlinkprio3 = charx.
+                        ENDIF.
+                      ELSE.
+*                       delivery link from pack.mat doesn't overwrite
+                      ENDIF.
+                    ENDIF.  "IF <header>-selkz  IS INITIAL
+                  ENDIF.  "IF NOT lf_vbeln IS INITIAL
+              ENDCASE.  "CASE <item>-velin
+            ENDLOOP.  "LOOP AT lt_items ASSIGNING <item> FROM sy-tabix
+
+*           update gt_xvekp dynamic fields possible?
+            IF NOT <header>-selkz IS INITIAL.
+*             delivery where to generate items was determined.
+*             check in case of repacking if movement status of the
+*             the emitting delivery still allows changes ...
+              IF NOT <header>-vbeln_gen IS INITIAL
+                   AND <header>-vbeln_gen <> <header>-liefnr.
+                READ TABLE lt_dlvstatus INTO ls_dlvstatus
+                         WITH KEY vbeln = <header>-vbeln_gen
+                         BINARY SEARCH.                     .
+                CHECK sy-subrc IS INITIAL.
+                IF ls_dlvstatus-chgeallowd IS INITIAL.
+*                 no change allowed -> restore dynamic fields
+*                 >>>>>>>>>>>>>> insert a message <<<<<<<<<<<<<<<<
+*                  lt_ret-type        = .
+*                  lt_ret-id          = .
+*                  lt_ret-number      = .
+*                  lt_ret-message_v1  = .
+*                  lt_ret-field       = .
+*                  APPEND lt_ret.
+                  <header>-liefnr = <header>-vbeln_gen.
+                  IF NOT <header>-kunnr IS INITIAL.
+                    IF ls_dlvstatus-kunnr <> <header>-kunnr.
+*                     <header>-kunnr contains the so-far determined
+*                     unique ship-to of the hierarchy for <header>
+*                     -> check if it meets also ls_dlvstatus-kunnr
+                      CLEAR <header>-kunnr.
+                    ENDIF.
+                  ENDIF.
+                ENDIF. "IF ls_dlvstatus-chgeallowd IS initial.
+              ENDIF. "IF NOT <header>-vbeln_gen IS initial.
+*             update the dynamic fields in gt_xvekp
+              MODIFY gt_xvekp FROM <header>
+                               TRANSPORTING liefnr kunnr
+                               WHERE venum = <header>-venum.
+            ENDIF.  "IF NOT <header>-selkz IS INITIAL.
+          ENDIF.  "Transport-HU
+        ENDLOOP.  "LOOP AT lt_header ASSIGNING <header>
+
+***********************************************************************
+*     DETERMINE DELIVERY RELATION FOR "EMPTY-LOW-LEVEL-HUS"           *
+***********************************************************************
+
+*       Now the processing of the upper level HU hirarchy is finished
+*       which means that the dynamic fields liefnr and kunnr of the
+*       HUs are up-to-date. Now we process the "empty low levels".
+*       Note that non-shipment-HUs mustn't be changed!
+        LOOP AT lt_header ASSIGNING <header_kzunt>
+                          WHERE NOT kzunt IS INITIAL.
+*         set 'selkz' for shipment HUs w/o delivery assignment
+          CHECK NOT <header_kzunt>-histu = 0.
+          lf_nestlevels = <header_kzunt>-histu + 1.
+          READ TABLE gt_xvekp WITH KEY venum = <header_kzunt>-venum
+                                  ASSIGNING <header_gt>
+                                  BINARY SEARCH.
+          IF NOT sy-subrc IS INITIAL.
+*           this should not happen -> error!!
+          ENDIF.
+          CLEAR ls_header.
+          MODIFY gt_xvekp FROM ls_header TRANSPORTING selkz
+                                   WHERE NOT selkz IS INITIAL.
+          DO lf_nestlevels TIMES.  "no endless loop on inconsist. data
+            IF <header_gt>-vpobj = gc_obj_04.
+*             HU belongs to transport ...
+              IF NOT <header_gt>-liefnr IS INITIAL.
+*               upper level HU with delivery relation found ...
+                MODIFY gt_xvekp FROM <header_gt>
+                              TRANSPORTING liefnr kunnr
+                              WHERE NOT selkz IS INITIAL.
+                EXIT.
+              ELSE.
+                <header_gt>-selkz = charx.
+              ENDIF.
+            ELSE.
+*             HU doesn't belong to a transport -> remains unchanged
+            ENDIF.
+            IF <header_gt>-histu = 0.
+*             reached top HU, but no delivery link determined so far
+              EXIT.
+            ELSE.
+*             Climb up hierarchy for next loop (shift <header2>)
+              IF NOT <header_gt>-uevel IS INITIAL.
+                READ TABLE gt_xvekp ASSIGNING <header_gt>
+                              WITH KEY venum = <header_gt>-uevel.
+              ELSE.
+                READ TABLE lt_items ASSIGNING <item>
+                                 WITH KEY unvel = <header_gt>-venum.
+                IF NOT sy-subrc IS INITIAL. EXIT. ENDIF.
+                READ TABLE gt_xvekp ASSIGNING <header_gt>
+                                    WITH KEY venum = <item>-venum.
+              ENDIF.
+            ENDIF.
+          ENDDO.
+        ENDLOOP.  "LOOP AT lt_header ASSIGNING <header_kzunt>
+      ENDLOOP.  "LOOP AT gt_xvekp ASSIGNING <header_top>
+
+
+*     collect all information for delivery item creation in gt_xvekp
+*     (lt_header can't be used anymore as it only contains the
+*     hierarchy belonging to one TOP-HU of the shipment)
+      LOOP AT gt_xvekp ASSIGNING <header>.
+        CHECK <header>-vpobj = gc_obj_04.
+*       check if item change is possible from emitting delivery
+        IF NOT <header>-vbeln_gen IS INITIAL.
+          READ TABLE lt_dlvstatus INTO ls_dlvstatus
+                                 WITH KEY vbeln = <header>-vbeln_gen
+                                 BINARY SEARCH.                     .
+          CHECK sy-subrc IS INITIAL.
+          CHECK NOT ls_dlvstatus-chgeallowd IS INITIAL.
+        ENDIF.
+        CLEAR: ls_venum, ls_genpos.
+
+***********************************************************************
+*     UPDATE CT_GENPOS - FIRST STEP : AUXILIARY PACKAGING MATERIAL    *
+***********************************************************************
+
+*       Update auxiliary packaging material for current <header>
+*       (kunnr / liefnr are relyable before processing <header>)
+        IF NOT lf_auxpackmat IS INITIAL.
+          READ TABLE gt_xvepo TRANSPORTING NO FIELDS
+                              WITH KEY venum = <header>-venum
+                              BINARY SEARCH.
+          IF sy-subrc IS INITIAL.
+            LOOP AT gt_xvepo ASSIGNING <item> FROM sy-tabix.
+              IF <item>-venum <> <header>-venum.
+                EXIT.
+              ENDIF.
+              CHECK <item>-velin = '2'.
+              PERFORM select_kzpgn CHANGING <item>.
+
+*             following coding is processed if current aux.pack.mat ..
+*             ... has no delivery item yet and should not get one
+*             ... has already a delivery item which should be deleted
+*             Remarque: update flag (kzupd) might be set for ct_genpos
+*                     and for gt_xvekp if to delete delivery item
+              IF  <header>-liefnr IS INITIAL
+                  OR <item>-kzpgn = ' '
+                  OR <header>-kunnr IS INITIAL AND <item>-kzpgn = 'A'
+                  OR NOT <item>-vbeln IS INITIAL
+                      AND <header>-liefnr <> <item>-vbeln.
+                IF <item>-posnr_gen IS INITIAL.
+*                 no delivery item yet and no creation of one ...
+                  CONTINUE.
+                ELSE.
+*                 delivery item already exists but should be deleted
+                  READ TABLE ct_genpos INTO ls_genpos
+                                WITH KEY vhilm = <item>-matnr
+                                         vbeln = <item>-vbeln
+                                         posnr = <item>-posnr_gen
+                                         BINARY SEARCH.
+                  lf_subrc = sy-subrc.
+                  lf_tabix = sy-tabix.
+*                 for withdrawl we to take the right quantity: in case
+*                 the quantity was modified, an entry is to be found
+*                 in gt_yvepo with the quantity at item creation point
+*                 of time ...
+                  CLEAR lf_veanz.
+                  READ TABLE gt_yvepo ASSIGNING <vepo>
+                            WITH KEY venum = <item>-venum
+                                     vepos = <item>-vepos
+                            BINARY SEARCH.
+                  IF sy-subrc IS INITIAL.
+                    lf_veanz = <vepo>-veanz.
+                  ELSE.
+                    lf_veanz = <item>-veanz.
+                  ENDIF.
+
+                  IF lf_subrc IS INITIAL.
+*                   corresponding delivery item line exists already
+                    IF ls_genpos-updkz <> 'I'.
+                      ls_genpos-updkz = 'U'.
+                    ENDIF.
+                    ls_genpos-lfimg_new =
+                                  ls_genpos-lfimg_new - lf_veanz.
+                    MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+                  ELSE.
+                    lf_veanz =  -1 * lf_veanz.
+*                   create a new delivery item line
+                    PERFORM create_genpos_entry_aux
+                                       USING    <item>-venum
+                                                <item>-vepos
+                                                <item>-vbeln
+                                                lf_veanz
+                                       CHANGING ct_genpos
+                                                lf_tabix.
+                  ENDIF.
+                  <item>-updkz = 'U'.
+                  CLEAR: <item>-posnr_gen, <item>-vbeln.
+                ENDIF.
+              ENDIF.
+
+*             the follwing coding is processed to check if the current
+*             aux.pack.mat should get / keep a delivery item
+*             Remarque: update flag (kzupd) is set in the following
+*             for ct_genpos, while for gt_xvekp / gt_vepo it is set
+*             only in LV51PF42 after further checks of delivery status
+              IF NOT <header>-liefnr IS INITIAL.
+*               delivery relation exists
+                IF <item>-kzpgn = 'B'
+                  OR <item>-kzpgn = 'A'
+                     AND NOT <header>-kunnr IS INITIAL.
+*                 up to now nothing against delivery item creation
+                  IF NOT <item>-lgort IS INITIAL.
+                    READ TABLE ct_genpos INTO ls_genpos
+                                   WITH KEY vhilm = <item>-matnr
+                                            vbeln = <header>-liefnr
+                                            werks = <item>-werks
+                                            lgort = <item>-lgort
+                                       BINARY SEARCH.
+                  ELSEIF NOT <item>-werks IS INITIAL.
+                    READ TABLE ct_genpos INTO ls_genpos
+                                   WITH KEY vhilm = <item>-matnr
+                                            vbeln = <header>-liefnr
+                                            werks = <item>-werks
+                                       BINARY SEARCH.
+                  ELSE.
+                    READ TABLE ct_genpos INTO ls_genpos
+                                   WITH KEY vhilm = <item>-matnr
+                                            vbeln = <header>-liefnr
+                                       BINARY SEARCH.
+                  ENDIF.
+                  lf_tabix = sy-tabix.
+                  lf_subrc = sy-subrc.
+
+*                 change in quantity leads to entry in gt_yvepo with
+*                 the current quantity on the data base, while in
+*                 gt_xvepo the new quantity is given
+                  READ TABLE gt_yvepo ASSIGNING <vepo>
+                            WITH KEY venum = <item>-venum
+                                     vepos = <item>-vepos
+                            BINARY SEARCH.
+                  IF sy-subrc IS INITIAL.
+                    lf_veanz = <item>-veanz - <vepo>-veanz.
+                  ELSE.
+                    CLEAR lf_veanz.  "no change in quantity
+                  ENDIF.
+
+                  IF <header>-liefnr <> <item>-vbeln.
+                    IF lf_subrc IS INITIAL.
+*                     add to already existing delivery item line
+                      CLEAR ls_venum.
+                      ls_venum-venum = <item>-venum.
+                      ls_venum-vepos = <item>-vepos.
+                      APPEND ls_venum TO ls_genpos-hus.
+                      IF NOT <item>-posnr_gen IS INITIAL.
+*                       already existing item
+                        ls_genpos-lfimg_new = ls_genpos-lfimg_new
+                                  + lf_veanz.
+                      ELSE.
+*                       new item
+                        ls_genpos-lfimg_new = ls_genpos-lfimg_new
+                                  + <item>-veanz.
+                      ENDIF.
+                      IF NOT ls_genpos-updkz  = 'I'.
+                        ls_genpos-updkz = 'U'.
+                      ENDIF.
+                      MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+                    ELSE.
+*                     create new delivery item line
+                      PERFORM create_genpos_entry_aux
+                                         USING    <item>-venum
+                                                  <item>-vepos
+                                                  <header>-liefnr
+                                                  <item>-veanz
+                                         CHANGING ct_genpos
+                                                  lf_tabix.
+
+                    ENDIF.
+                  ELSE.
+*                   <header>-liefnr = <item>-vbeln -> keep the item
+                    IF lf_subrc IS INITIAL.
+*                     already existing delivery item line
+                      ls_venum-venum = <item>-venum.
+                      ls_venum-vepos = <item>-vepos.
+                      APPEND ls_venum TO ls_genpos-hus.
+*                     adapt quantity if it was changed
+                      IF NOT lf_veanz IS INITIAL.
+                        ls_genpos-lfimg_new =
+                                     ls_genpos-lfimg_new + lf_veanz.
+                        IF NOT ls_genpos-updkz  = 'I'.
+                          ls_genpos-updkz = 'U'.
+                        ENDIF.
+                      ENDIF.
+                      MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+                    ELSE.
+*                     no delivery item line exists, but we do nothing
+*                     as the user might have deleted the item line
+*                     manually
+                    ENDIF.
+                  ENDIF.
+                ELSE.
+*                 case without delivery item creation ...
+                ENDIF.  "IF <item>-kzpgn = 'B'
+              ENDIF. "IF NOT <header>-liefnr IS INITIAL
+            ENDLOOP. "LOOP AT gt_xvepo ASSIGNING <item>
+          ENDIF.  "IF sy-subrc IS INITIAL
+        ENDIF. "IF NOT lf_auxpackmat IS INITIAL
+
+***********************************************************************
+*     UPDATE CT_GENPOS - SECOND STEP : PACKAGING MATERIAL HEADERS     *
+***********************************************************************
+
+*       The following coding is processed if the current <header> ...
+*       ... has no delivery item yet and should not get one
+*       ... has already a delivery item which should be deleted
+        IF   <header>-liefnr IS INITIAL
+             OR <header>-kzpgn = ' '
+             OR <header>-kunnr IS INITIAL AND <header>-kzpgn = 'A'
+             OR NOT <header>-vbeln_gen IS INITIAL
+                AND <header>-liefnr <> <header>-vbeln_gen.
+          IF <header>-vbeln_gen IS INITIAL.
+*           no delivery item yet and no creation of one
+            CLEAR: <header>-liefnr, <header>-kunnr.
+            CONTINUE.
+          ELSE.
+*           delivery item already exists but should be deleted
+            READ TABLE ct_genpos INTO ls_genpos
+                               WITH KEY vhilm = <header>-vhilm
+                                        vbeln = <header>-vbeln_gen
+                                        posnr = <header>-posnr_gen
+                                        BINARY SEARCH.
+            lf_subrc = sy-subrc.
+            lf_tabix = sy-tabix.
+            IF lf_subrc IS INITIAL.
+*             corresponding delivery item line exists already
+              IF ls_genpos-updkz <> 'I'.
+                ls_genpos-updkz = 'U'.
+              ENDIF.
+              ls_genpos-lfimg_new = ls_genpos-lfimg_new - 1.
+              MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+            ELSE.
+*             create a new delivery item line
+*             we enter this case only in case there were already
+*             inconsistencies or manually deleted delivery items
+              PERFORM create_genpos_entry
+                                   USING    <header>-venum
+                                            -1
+                                            <header>-vbeln_gen
+                                   CHANGING ct_genpos
+                                            lf_tabix.
+            ENDIF.
+            <header>-updkz = 'U'.
+            CLEAR: <header>-vbeln_gen, <header>-posnr_gen.
+          ENDIF. "IF <header>-vbeln_gen IS initial.
+        ENDIF. "IF <header>-liefnr IS initial ...
+
+*       the follwing coding is processed to check if the current
+*       <header> should get / keep a delivery item
+        IF NOT <header>-liefnr IS INITIAL.
+*         delivery relation exists ...
+          CLEAR ls_venum.
+          IF <header>-kzpgn = 'B'
+            OR <header>-kzpgn = 'A' AND NOT <header>-kunnr IS INITIAL.
+*           up to now nothing against delivery item creation ...
+            IF NOT <header>-lgort IS INITIAL.
+              READ TABLE ct_genpos INTO ls_genpos
+                                   WITH KEY vhilm = <header>-vhilm
+                                            vbeln = <header>-liefnr
+                                            werks = <header>-werks
+                                            lgort = <header>-lgort
+                                       BINARY SEARCH.
+            ELSEIF NOT <header>-werks IS INITIAL.
+              READ TABLE ct_genpos INTO ls_genpos
+                                   WITH KEY vhilm = <header>-vhilm
+                                            vbeln = <header>-liefnr
+                                            werks = <header>-werks
+                                   BINARY SEARCH.
+            ELSE.
+              READ TABLE ct_genpos INTO ls_genpos
+                                   WITH KEY vhilm = <header>-vhilm
+                                            vbeln = <header>-liefnr
+                                   BINARY SEARCH.
+            ENDIF.
+            lf_subrc = sy-subrc.
+            lf_tabix = sy-tabix.
+
+            IF <header>-liefnr <> <header>-vbeln_gen.
+*             create an additional delivery item
+              IF lf_subrc IS INITIAL.
+*               add to already existing delivery item line
+                ls_venum-venum = <header>-venum.
+                APPEND ls_venum TO ls_genpos-hus.
+                IF ls_genpos-updkz <> 'I'.
+                  ls_genpos-updkz = 'U'.
+                ENDIF.
+                ls_genpos-lfimg_new = ls_genpos-lfimg_new + 1.
+                MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+              ELSE.
+*               create new delivery item line
+                PERFORM create_genpos_entry
+                                     USING    <header>-venum
+                                              1
+                                              <header>-liefnr
+                                     CHANGING ct_genpos
+                                              lf_tabix.
+              ENDIF.
+
+            ELSE.
+*             keep already existing delivery item
+              IF lf_subrc IS INITIAL.
+*               add to already existing delivery item line
+                ls_venum-venum = <header>-venum.
+                APPEND ls_venum TO ls_genpos-hus.
+                MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+              ELSE.
+*               no delivery item line exists, but we do nothing as
+*               the user might have deleted the item line manually
+              ENDIF.
+            ENDIF. "IF <header>-liefnr <> <header>-vbeln_gen.
+          ELSE.
+*           delivery item should not exist -> mark for deletion
+*           diminish ct_genpos, clear dynamic fields?
+          ENDIF. "IF <header>-kzpgn = 'B'
+        ENDIF.  "IF NOT <header>-liefnr IS initial
+      ENDLOOP. "LOOP AT gt_xvekp ASSIGNING <header>
+    ENDIF.  "IF is_object-object = gc_obj_04.
+
+***********************************************************************
+*     PROCESSING CT_GENPOS                                            *
+***********************************************************************
+
+*   final checks and resorting of ct_genpos
+    DELETE ct_genpos WHERE updkz IS INITIAL.
+    CLEAR: lf_vbeln.
+    CASE is_object-object.
+      WHEN gc_obj_01 OR gc_obj_03.
+      WHEN gc_obj_04.
+        SORT ct_genpos BY vbeln posnr.
+        LOOP AT ct_genpos INTO ls_genpos.
+          ls_genpos-id = sy-tabix.
+          MODIFY ct_genpos FROM ls_genpos.
+          IF NOT lf_vbeln IS INITIAL AND ls_genpos-vbeln <> lf_vbeln.
+*           process all ct_genpos lines belonging to the same delivery
+*           before performing 'delivery_upd_for_package_mat'.
+            PERFORM delivery_upd_for_package_mat
+                                      TABLES    lt_req
+                                                        et_ret "HP433492
+                                                 USING    lf_vbeln
+                                                 CHANGING ct_genpos.
+            IF et_req IS REQUESTED.                         "v_571656
+              APPEND LINES OF lt_req TO et_req.
+            ENDIF.                                          "^_571656
+            REFRESH: lt_req.
+          ENDIF.
+          CLEAR ls_req.
+          ls_req-id            = ls_genpos-id.
+          ls_req-document_type = gc_vbobj_delivery.
+          ls_req-document_numb = ls_genpos-vbeln.
+          ls_req-document_item = ls_genpos-posnr.
+          IF ls_genpos-lfimg_new < 0 OR ls_genpos-updkz = 'D'.
+            CLEAR ls_genpos-lfimg_new.
+          ENDIF.
+          ls_req-quantity_sales_uom = ls_genpos-lfimg_new.
+          ls_req-quantity_base__uom = ls_genpos-lfimg_new.
+          ls_req-material_long      = ls_genpos-vhilm.
+          ls_req-material_customer  = ls_genpos-vhilm_ku.   "SP_599130
+          ls_req-plant              = ls_genpos-werks.
+          ls_req-stge_loc           = ls_genpos-lgort.
+          ls_req-item_type          = 'C'.            "Posar C = Verp.
+          ls_req-tare_wght          = ls_genpos-tarag.
+          ls_req-unit_of_wt         = ls_genpos-gewei.
+          ls_req-tare_vol           = ls_genpos-tavol.
+          ls_req-volumeunit         = ls_genpos-voleh.
+          APPEND ls_req TO lt_req.
+*         ls_req-id = sy-tabix.
+*         modify lt_req from ls_req index sy-tabix.
+          lf_vbeln = ls_genpos-vbeln.
+        ENDLOOP.
+        IF NOT lt_req IS INITIAL.
+          PERFORM delivery_upd_for_package_mat
+                                      TABLES    lt_req
+                                                        et_ret "HP433492
+                                               USING    lf_vbeln
+                                               CHANGING ct_genpos.
+          IF et_req IS REQUESTED.                           "v_571656
+            APPEND LINES OF lt_req TO et_req.
+          ENDIF.                                            "^_571656
+        ENDIF.
+    ENDCASE.
+    DELETE ct_genpos WHERE updkz = updkz_delete.
+    IF NOT lt_ret IS INITIAL.
+      APPEND lt_ret TO et_ret.                              "n_554293
+    ENDIF.
+  ENDIF.
+ENDFUNCTION.
+
+
+*####################################################################*
+FORM create_del_item_old USING if_generate TYPE xfeld
+                               it_genpos TYPE hum_genpos_t
+                               is_object TYPE hum_object.
+  DATA: ls_genpos      TYPE vsep_s_genpos, ls_510 TYPE vekp_510,
+        lf_delivery    TYPE likp-vbeln, lf_tabix TYPE sy-tabix,
+        lf_subrc       TYPE sy-subrc, lt_genpos TYPE vsep_t_genpos,
+        ls_matnr       TYPE v_matnr_hu, ls_tvty TYPE tvty,
+        lf_create_item TYPE xflag,
+        lt_assigned    TYPE gtyt_x_venum,
+        lf_x_object    TYPE hu_object.
+  FIELD-SYMBOLS: <header> TYPE vekpvb, <item> TYPE vepovb.
+  DATA: lf_z   TYPE sytabix, lf_n TYPE sytabix,
+        lf_gew TYPE gewei, lf_vol TYPE voleh.
+  DATA: lf_varkey TYPE rstable-varkey.
+
+  TYPES: BEGIN OF lty_velin2_quan,                          "SP_657128
+           venum TYPE venum,
+           vepos TYPE vepos,
+           veanz TYPE veanz,
+         END OF lty_velin2_quan.
+  STATICS: st_velin2_old TYPE TABLE OF lty_velin2_quan.
+  DATA: ls_velin2_old TYPE lty_velin2_quan,
+        lf_tabix_2    TYPE sytabix.
+  FIELD-SYMBOLS: <y_item> TYPE vepovb.
+
+* begin of note 2984970
+  DATA: ls_header type header51,
+        ls_tvlk type tvlk.
+
+* check the delivery type
+  call function 'V51P_GET_HEADER_DATA'
+       IMPORTING ES_HEADER51 = ls_header.
+
+  call function 'SHP_TVLK_SELECT_01'
+    exporting
+      if_lfart                =  ls_header-lfart
+    changing
+      cs_tvlk                 =  ls_tvlk
+   EXCEPTIONS
+*     NO_KEY_SPECIFIED        = 1
+*     NO_VALUE_SELECTED       = 2
+     OTHERS                  = 3.
+
+  if sy-subrc is initial.
+* Is it allowed to add items without reference?
+    if ls_tvlk-pobed = '201'.     " 201 => NO not allowed
+      RETURN.
+    endif.
+  endif.
+* end of note 2984970
+
+  lt_genpos[] = it_genpos[].
+  SORT lt_genpos BY vhilm vbeln werks lgort.
+  lf_delivery = gs_header51-objkey(10).
+  LOOP AT gt_yvekp ASSIGNING <header> WHERE posnr_gen NE space AND
+                                          ( updkz = updkz_delete OR
+                                            updkz = 'E' ).
+* HU aus der eine Lieferposition generiert wurde, wird gelöscht
+    READ TABLE lt_genpos INTO ls_genpos                     "SP_549167
+                                 WITH KEY vbeln = <header>-vbeln_gen
+                                          posnr = <header>-posnr_gen.
+    lf_tabix = sy-tabix.
+    IF sy-subrc IS INITIAL.
+      ls_genpos-lfimg_new = ls_genpos-lfimg_new - 1.
+      IF ls_genpos-lfimg_new < 0. ls_genpos-lfimg_new = 0. ENDIF.
+      ls_genpos-lfimg = ls_genpos-lfimg_new.
+      PERFORM position_generiert_aendern_1(sapfv50p)
+                       USING charp   ls_genpos-posnr
+                             ls_genpos-lfimg_new ls_genpos-vrkme
+                             space space 'X'.
+      IF ls_genpos-lfimg_new = 0.                           "v_976740
+        PERFORM xlips_loeschen(sapfv50p) USING space 0.
+        DELETE lt_genpos INDEX lf_tabix.
+      ELSE.
+        MODIFY lt_genpos FROM ls_genpos INDEX lf_tabix.
+      ENDIF.                                                "^_976740
+      CLEAR <header>-posnr_gen.
+    ENDIF.
+    IF <header>-updkz = 'E'. DELETE gt_yvekp. ENDIF.
+  ENDLOOP.
+
+* SPE: Delete generated items for Cross-delivery HU's where we currently
+*     deassign the delivery
+  CASE is_object-object.
+    WHEN gc_obj_01.          "Outbound Delivery
+      lf_x_object = gc_obj_21.
+    WHEN gc_obj_03.           "Inbound Delivery
+      lf_x_object = gc_obj_23.
+  ENDCASE.
+  PERFORM spe_det_assgnd_x_hu  USING is_object
+                            CHANGING lt_assigned.
+
+  LOOP AT gt_xvekp ASSIGNING <header> WHERE vpobj = lf_x_object.
+    READ TABLE lt_assigned WITH KEY venum = <header>-venum
+                           TRANSPORTING NO FIELDS.
+    CHECK sy-subrc NE 0.
+* HU from which a delivery item was generated, will be deleted
+    READ TABLE lt_genpos INTO ls_genpos
+                         WITH KEY vbeln = <header>-vbeln_gen
+                                  posnr = <header>-posnr_gen.
+    lf_tabix = sy-tabix.
+    IF sy-subrc IS INITIAL.
+      ls_genpos-lfimg_new = ls_genpos-lfimg_new - 1.
+      IF ls_genpos-lfimg_new < 0.
+        ls_genpos-lfimg_new = 0.
+      ENDIF.
+      ls_genpos-lfimg = ls_genpos-lfimg_new.
+      PERFORM position_generiert_aendern_1(sapfv50p)
+                       USING charp
+                             ls_genpos-posnr
+                             ls_genpos-lfimg_new
+                             ls_genpos-vrkme
+                             space
+                             space
+                             charx.
+      IF ls_genpos-lfimg_new = 0.                           "v_976740
+        PERFORM xlips_loeschen(sapfv50p) USING space 0.
+        DELETE lt_genpos INDEX lf_tabix.
+      ELSE.
+        MODIFY lt_genpos FROM ls_genpos INDEX lf_tabix.
+      ENDIF.                                                "^_976740
+      CLEAR: <header>-posnr_gen,
+             <header>-vbeln_gen.
+      IF <header>-updkz IS INITIAL.
+        CALL FUNCTION 'V51P_XVEKP_YVEKP_UPDATE'
+          EXPORTING
+            if_updkz = updkz_update
+            is_vekp  = <header>
+          EXCEPTIONS
+            OTHERS   = 0.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+
+  LOOP AT gt_xvekp ASSIGNING <header> WHERE NOT pstyv IS INITIAL OR
+                                            NOT kzpgn IS INITIAL OR
+                                            NOT posnr_gen IS INITIAL.
+
+    CHECK NOT <header>-vpobj = gc_obj_04.
+    READ TABLE gt_yard_hus TRANSPORTING NO FIELDS           "v_n_1138697
+                           WITH KEY venum = <header>-venum
+                           BINARY SEARCH.
+    CHECK sy-subrc <> 0.                                    "^_n_1138697
+
+* Check correct X-HU type or NO X-HU
+    CHECK: <header>-vpobj EQ lf_x_object OR
+           ( <header>-vpobj NE gc_obj_21 AND
+             <header>-vpobj NE gc_obj_23 ).
+
+    IF <header>-vpobj = lf_x_object.        "Cross Delivery HU
+
+      IF <header>-vbeln_gen IS INITIAL AND
+         <header>-updkz     EQ 'I'.
+* No packaging material item has been created so far.
+* Check if in a parallel task this might be done right now
+        CALL FUNCTION '/SPE/HU_X_ITEM_CREATE_CHECK'
+          EXPORTING
+            if_handle      = <header>-handle
+            if_vbeln       = lf_delivery
+          IMPORTING
+            ef_create_item = lf_create_item.
+      ELSEIF NOT <header>-vbeln_gen IS INITIAL AND
+             lf_delivery <> <header>-vbeln_gen.
+* Packaging material item has already been created in another delivery
+*   -> Do not generate again - unless it is a predecessor in a
+*      Cross-Docking chain
+        CONTINUE.
+      ELSE.
+        READ TABLE lt_assigned WITH KEY venum = <header>-venum
+                           TRANSPORTING NO FIELDS.
+        IF sy-subrc = 0.
+          lf_create_item = c_true.
+        ENDIF.
+      ENDIF.
+      IF lf_create_item = c_false.
+        CONTINUE.
+      ENDIF.
+    ENDIF.
+
+    IF <header>-vpobjkey NE gs_header51-objkey AND
+       <header>-vbeln_gen = gs_header51-objkey AND
+       NOT <header>-posnr_gen IS INITIAL.
+* Position reduzieren
+      PERFORM lf_pos_reduzieren USING    space
+                                CHANGING <header> lt_genpos.
+      CONTINUE.
+    ELSE.
+      READ TABLE lt_genpos INTO ls_genpos
+                           WITH KEY vbeln = <header>-vbeln_gen
+                                    posnr = <header>-posnr_gen.
+      lf_tabix = sy-tabix.
+      IF <header>-vhilm <> ls_genpos-vhilm.
+        PERFORM lf_pos_reduzieren USING    lf_tabix
+                                  CHANGING <header> lt_genpos.
+      ENDIF.
+      IF <header>-vpobj EQ lf_x_object AND
+        NOT <header>-posnr_gen IS INITIAL.
+        PERFORM lf_pos_reduzieren USING    lf_tabix
+                                  CHANGING <header> lt_genpos.
+        CLEAR <header>-posnr_gen.
+      ELSE.
+        CHECK <header>-posnr_gen IS INITIAL.
+      ENDIF.
+    ENDIF.
+    CHECK <header>-vpobjkey = gs_header51-objkey.           "SP_614340
+    CLEAR ls_510.
+    IF <header>-werks IS INITIAL OR <header>-pstyv IS INITIAL.
+      CHECK NOT <header>-kzpgn IS INITIAL AND
+            NOT if_generate IS INITIAL.
+    ENDIF.
+    IF <header>-werks IS INITIAL AND <header>-lgort IS INITIAL.
+      READ TABLE lt_genpos INTO ls_genpos
+                           WITH KEY vhilm = <header>-vhilm
+                                    vbeln = lf_delivery
+                           BINARY SEARCH.
+    ELSEIF <header>-lgort IS INITIAL.
+      READ TABLE lt_genpos INTO ls_genpos
+                           WITH KEY vhilm = <header>-vhilm
+                                    vbeln = lf_delivery
+                                    werks = <header>-werks
+                           BINARY SEARCH.
+    ELSE.
+      READ TABLE lt_genpos INTO ls_genpos
+                           WITH KEY vhilm = <header>-vhilm
+                                    vbeln = lf_delivery
+                                    werks = <header>-werks
+                                    lgort = <header>-lgort
+                           BINARY SEARCH.
+    ENDIF.
+    lf_tabix = sy-tabix.
+    lf_subrc = sy-subrc.
+    IF lf_subrc IS INITIAL.                      "Liefermenge erhöhen
+      ls_genpos-lfimg_new = ls_genpos-lfimg_new + 1.
+      PERFORM position_generiert_aendern_1(sapfv50p)
+                         USING charp       ls_genpos-posnr
+                               ls_genpos-lfimg_new     ls_genpos-vrkme
+                               space       space       'X'.
+      MODIFY lt_genpos INDEX lf_tabix FROM ls_genpos.
+      IF ls_genpos-lfimg_new <> ls_genpos-lfimg.
+        <header>-vbeln_gen = lf_delivery.
+        <header>-posnr_gen = ls_genpos-posnr.
+        IF <header>-updkz IS INITIAL.
+          CALL FUNCTION 'V51P_XVEKP_YVEKP_UPDATE'           "SP_591091
+            EXPORTING
+              if_updkz = updkz_update
+              is_vekp  = <header>
+            EXCEPTIONS
+              OTHERS   = 0.
+        ENDIF.
+      ENDIF.
+    ELSE.                                             "Lieferpos. gen
+      MOVE-CORRESPONDING <header> TO ls_510.
+      READ TABLE gt_xvepo TRANSPORTING NO FIELDS
+                          WITH KEY venum = <header>-venum
+                          BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        LOOP AT gt_xvepo ASSIGNING <item> FROM sy-tabix.
+          IF <item>-venum <> <header>-venum. EXIT. ENDIF.
+          CHECK <item>-velin = 2.
+          IF ls_510-gewei = <item>-gewei.
+            ls_510-tarag = ls_510-tarag - <item>-brgew.
+          ELSE.
+            PERFORM conversion_factor_get USING    ls_510-gewei
+                                                   <item>-gewei
+                                          CHANGING lf_z lf_n lf_gew.
+            ls_510-tarag = ls_510-tarag -
+                           ( <item>-brgew * lf_z / lf_n ).
+          ENDIF.
+          IF ls_510-voleh = <item>-voleh.
+            ls_510-tavol = ls_510-tavol - <item>-volum.
+          ELSE.
+            PERFORM conversion_factor_get USING ls_510-voleh
+                                                <item>-voleh
+                                          CHANGING lf_z lf_n lf_gew.
+            ls_510-tavol = ls_510-tavol -
+                           ( <item>-volum * lf_z / lf_n ).
+          ENDIF.
+        ENDLOOP.
+        IF ls_510-tarag < 0. CLEAR ls_510-tarag. ENDIF.
+        IF ls_510-tavol < 0. CLEAR ls_510-tavol. ENDIF.
+      ENDIF.
+* DO not generate new items for HUs that were posted GR in previous confirm decentral partial GR
+      IF <header>-vpobj = '12' AND gs_header51-conf_dec = 'X'.
+        CHECK NOT <header>-updkz is initial.
+      ENDIF.
+      PERFORM position_generieren_hu(sapfv50p)
+                               USING ls_510   lf_delivery  '1'
+                                     <header>-meins 'C'
+                               CHANGING <header>-posnr_gen.
+      IF NOT <header>-posnr_gen IS INITIAL.
+        <header>-vbeln_gen = lf_delivery.
+        ls_genpos-vhilm = <header>-vhilm.
+        ls_genpos-vhilm_ku = <header>-vhilm_ku.             "SP_599130
+        ls_genpos-lgort = <header>-lgort.
+        ls_genpos-werks = <header>-werks.
+        ls_genpos-vbeln = lf_delivery.
+        ls_genpos-posnr = <header>-posnr_gen.
+        ls_genpos-vrkme = <header>-meins.
+        ls_genpos-lfimg = 0.
+        ls_genpos-lfimg_new = 1.
+        INSERT ls_genpos INTO lt_genpos INDEX lf_tabix.
+        IF <header>-updkz IS INITIAL.
+          CALL FUNCTION 'V51P_XVEKP_YVEKP_UPDATE'           "SP_591091
+            EXPORTING
+              if_updkz = updkz_update
+              is_vekp  = <header>
+            EXCEPTIONS
+              OTHERS   = 0.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+  LOOP AT gt_yvepo ASSIGNING <item> WHERE ( updkz = updkz_delete OR
+                                      updkz = 'E' ) AND
+                                      velin = '2' AND
+                                   NOT posnr_gen = space.
+    CLEAR ls_velin2_old.
+    READ TABLE st_velin2_old INTO ls_velin2_old WITH KEY    "SP_657128
+                                      venum = <item>-venum
+                                      vepos = <item>-vepos
+                                      BINARY SEARCH.
+    IF sy-subrc IS INITIAL.
+      DELETE st_velin2_old INDEX sy-tabix.
+    ENDIF.
+* HU aus der eine Lieferposition generiert wurde, wird gelöscht
+    READ TABLE lt_genpos INTO ls_genpos
+                                 WITH KEY vhilm = <item>-matnr
+                                          vbeln = lf_delivery
+                                          posnr = <item>-posnr_gen.
+    lf_tabix = sy-tabix.
+    IF sy-subrc IS INITIAL.
+      IF NOT ls_velin2_old IS INITIAL.                      "SP_657128
+        ls_genpos-lfimg_new = ls_genpos-lfimg_new - ls_velin2_old-veanz.
+      ELSE.
+        ls_genpos-lfimg_new = ls_genpos-lfimg_new - <item>-veanz.
+      ENDIF.
+      IF ls_genpos-lfimg_new < 0. ls_genpos-lfimg_new = 0. ENDIF.
+      ls_genpos-lfimg = ls_genpos-lfimg_new.
+      PERFORM position_generiert_aendern_1(sapfv50p)
+                       USING charp   ls_genpos-posnr
+                             ls_genpos-lfimg_new ls_genpos-vrkme
+                             space space 'X'.
+      IF ls_genpos-lfimg_new = 0.                           "v_976740
+        PERFORM xlips_loeschen(sapfv50p) USING space 0.
+        DELETE lt_genpos INDEX lf_tabix.
+      ELSE.
+        MODIFY lt_genpos FROM ls_genpos INDEX lf_tabix.
+      ENDIF.                                                "^_976740
+      CLEAR: <item>-posnr_gen.
+*      modify gt_yvepo from ls_vepo.
+    ENDIF.
+    IF <item>-updkz = 'E'. DELETE gt_yvepo. ENDIF.
+  ENDLOOP.
+*  LOOP AT GT_XVEPO ASSIGNING <ITEM> WHERE NOT WERKS = SPACE AND
+*                                      NOT PSTYV = SPACE AND
+*                                          VELIN = '2'.
+  LOOP AT gt_xvepo ASSIGNING <item> WHERE velin = '2'.
+    IF NOT <item>-werks IS INITIAL AND NOT <item>-pstyv IS INITIAL.
+* ???
+    ELSE.
+      IF NOT if_generate IS INITIAL.
+        PERFORM select_kzpgn CHANGING <item>.
+        CHECK NOT <item>-kzpgn IS INITIAL.
+      ELSE.
+        CONTINUE.
+      ENDIF.
+    ENDIF.
+    READ TABLE gt_xvekp ASSIGNING <header>
+                        WITH KEY venum = <item>-venum BINARY SEARCH.
+    CHECK sy-subrc IS INITIAL.
+*   HUs that have been posted GR should be disregarded      "v_n_1705323
+    IF <header>-vpobj = gc_obj_12 AND
+       <header>-vpobjkey = gs_header51-objkey AND
+       /spe/cl_ctrl=>is_ewm( i_lgnum = <header>-lgnum ) = 'X' AND
+       gs_header51-object = gc_obj_03 AND
+       gs_header51-conf_dec = charx.
+      CHECK NOT <header>-updkz IS INITIAL.
+    ENDIF.                                                  "^_n_1705323
+    IF ( <header>-vpobj  = gs_header51-object OR "normal HU
+         <header>-vpobj  = lf_x_object ) AND     "X-HU        n_1604812
+       <header>-vpobjkey = gs_header51-objkey.
+      CHECK <item>-posnr_gen = space OR <item>-updkz = 'I' OR "SP_657128
+                                        <item>-updkz = 'U'.
+*     Lines of note 1604812 deleted                           "n_1637271
+      CLEAR: lf_tabix_2, ls_velin2_old.
+      READ TABLE st_velin2_old INTO ls_velin2_old WITH KEY
+                               venum = <item>-venum
+                               vepos = <item>-vepos
+                               BINARY SEARCH.
+      lf_tabix_2 = sy-tabix.
+      IF NOT <item>-posnr_gen = space.
+        IF ls_velin2_old-venum IS INITIAL.
+          READ TABLE gt_yvepo ASSIGNING <y_item> WITH KEY
+                                   venum = <item>-venum
+                                   vepos = <item>-vepos
+                                   BINARY SEARCH.
+          IF sy-subrc IS INITIAL.
+            ls_velin2_old-veanz = <y_item>-veanz.
+          ELSE.
+            CONTINUE.
+          ENDIF.
+        ENDIF.
+        IF ls_velin2_old-veanz = <item>-veanz.
+          CONTINUE.
+        ENDIF.
+      ENDIF.
+      CLEAR ls_510.
+      IF <item>-werks IS INITIAL AND <item>-lgort IS INITIAL.
+        READ TABLE lt_genpos INTO ls_genpos
+                             WITH KEY vhilm = <item>-matnr
+                                      vbeln = lf_delivery
+                             BINARY SEARCH.
+      ELSEIF <item>-lgort IS INITIAL.
+        READ TABLE lt_genpos INTO ls_genpos
+                             WITH KEY vhilm = <item>-matnr
+                                      vbeln = lf_delivery
+                                      werks = <item>-werks
+                             BINARY SEARCH.
+      ELSE.
+        READ TABLE lt_genpos INTO ls_genpos
+                             WITH KEY vhilm = <item>-matnr
+                                      vbeln = lf_delivery
+                                      werks = <item>-werks
+                                      lgort = <item>-lgort
+                             BINARY SEARCH.
+      ENDIF.
+      lf_tabix = sy-tabix.
+      lf_subrc = sy-subrc.
+      IF lf_subrc IS INITIAL.
+        IF NOT <item>-posnr_gen IS INITIAL.
+          ls_genpos-lfimg_new = ls_genpos-lfimg_new + <item>-veanz
+                              - ls_velin2_old-veanz.        "SP_657128
+        ELSE.
+          ls_genpos-lfimg_new = ls_genpos-lfimg_new + <item>-veanz.
+        ENDIF.
+        IF ls_genpos-lfimg_new < 0.                         "v_821977
+          ls_genpos-lfimg_new = 0.
+        ENDIF.                                              "^_821977
+        ls_genpos-lfimg     = ls_genpos-lfimg_new.
+        PERFORM position_generiert_aendern_1(sapfv50p)
+                           USING charp   ls_genpos-posnr
+                                 ls_genpos-lfimg_new ls_genpos-vrkme
+                                 space space 'X'.
+        MODIFY lt_genpos INDEX lf_tabix FROM ls_genpos.
+        <item>-posnr_gen = ls_genpos-posnr.
+        IF <header>-vpobj  = lf_x_object.                   "v_n_3002730
+*         for XHU, the identification of the delivery for which
+*         the item was created is required in the deletion step
+          <item>-vbeln = lf_delivery.
+        ENDIF.                                              "^_n_3002730
+*        modify gt_xvepo from ls_vepo transporting posnr_gen.
+        CALL FUNCTION 'V51P_XVEPO_YVEPO_UPDATE'
+          EXPORTING
+            if_updkz = 'U'
+            is_vepo  = <item>.
+      ELSE.
+        MOVE-CORRESPONDING <item> TO ls_510.
+        ls_510-vhilm = <item>-matnr.
+        ls_510-vhilm_ku = <item>-p_material.
+        ls_510-tarag    = <item>-brgew / <item>-veanz.
+        ls_510-tavol    = <item>-volum / <item>-veanz.
+        PERFORM position_generieren_hu(sapfv50p)
+                                USING ls_510  lf_delivery  <item>-veanz
+                                      <item>-vemeh 'C'
+                                CHANGING <item>-posnr_gen.
+        CHECK NOT <item>-posnr_gen IS INITIAL.
+        ls_genpos-vhilm = <item>-matnr.
+        ls_genpos-vhilm_ku = <item>-p_material.             "SP_599130
+        ls_genpos-lgort = <item>-lgort.
+        ls_genpos-werks = <item>-werks.
+        ls_genpos-vbeln = lf_delivery.
+        ls_genpos-posnr = <item>-posnr_gen.
+        ls_genpos-vrkme = <item>-vemeh.     "Packmittel: vemeh = meins
+        ls_genpos-lfimg = <item>-veanz.
+        ls_genpos-lfimg_new = <item>-veanz.
+        INSERT ls_genpos INTO lt_genpos INDEX lf_tabix.
+        CALL FUNCTION 'V51P_XVEPO_YVEPO_UPDATE'
+          EXPORTING
+            if_updkz = 'U'
+            is_vepo  = <item>.
+      ENDIF.
+      ls_velin2_old-veanz = <item>-veanz.                   "SP_657128
+      IF ls_velin2_old-venum IS INITIAL.
+        ls_velin2_old-venum = <item>-venum.
+        ls_velin2_old-vepos = <item>-vepos.
+        INSERT ls_velin2_old INTO st_velin2_old INDEX lf_tabix_2.
+      ELSE.
+        MODIFY st_velin2_old FROM ls_velin2_old INDEX lf_tabix_2.
+      ENDIF.
+    ELSE.
+*..... HU-item has been generated as delivery item - relation deleted
+      CHECK NOT <item>-posnr_gen IS INITIAL.
+      CHECK NOT <header>-vpobj = gs_header51-object.    "other delivery
+      CHECK <header>-vbeln_gen = lf_delivery OR             "HP_377590
+            ( NOT <header>-updkz IS INITIAL AND             "HP_377590
+              <header>-vbeln_gen IS INITIAL ).              "HP_377590
+      READ TABLE lt_genpos INTO ls_genpos
+                           WITH KEY vhilm = <item>-matnr
+                                    vbeln = lf_delivery
+                                    posnr = <item>-posnr_gen.
+      CHECK sy-subrc IS INITIAL.                            "HP_370489
+      CLEAR <item>-posnr_gen.
+      lf_tabix = sy-tabix.
+*      modify gt_xvepo from ls_vepo transporting posnr_gen.
+      CALL FUNCTION 'V51P_XVEPO_YVEPO_UPDATE'
+        EXPORTING
+          if_updkz       = 'U'
+          is_vepo        = <item>
+        EXCEPTIONS
+          vepo_not_found = 01
+          OTHERS         = 99.
+      CHECK sy-subrc IS INITIAL.
+      ls_genpos-lfimg_new = ls_genpos-lfimg_new - <item>-veanz.
+      IF ls_genpos-lfimg_new < 0. ls_genpos-lfimg_new = 0. ENDIF.
+      ls_genpos-lfimg = ls_genpos-lfimg_new.
+      PERFORM position_generiert_aendern_1(sapfv50p)
+                       USING charp   ls_genpos-posnr
+                             ls_genpos-lfimg_new ls_genpos-vrkme
+                             space space 'X'.
+      IF ls_genpos-lfimg_new = 0.                           "v_976740
+        PERFORM xlips_loeschen(sapfv50p) USING space 0.
+        DELETE lt_genpos INDEX lf_tabix.
+      ELSE.
+        MODIFY lt_genpos FROM ls_genpos INDEX lf_tabix.
+      ENDIF.                                                "^_976740
+      READ TABLE st_velin2_old INTO ls_velin2_old WITH KEY  "SP_657128
+                               venum = <item>-venum
+                               vepos = <item>-vepos
+                               BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        DELETE st_velin2_old INDEX sy-tabix.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+
+* Set Quantity to be post for the generated packaging item "start_N:932432
+  PERFORM set_ebumg_for_gen_pos(sapfv50p) USING gt_xvekp gt_xvepo.
+
+ENDFORM.                    "create_del_item_old
+*---------------------------------------------------------------------*
+*is there a material item in table "it_items" with the given "if_venum"?
+*YES, and it belongs to delivery "if_vbeln"              -> ef_subrc = 1
+*YES, but as "if_vbeln" is initial we leave when         -> ef_subrc = 1
+*     we find the first material (performance)
+*YES, but it doesn't belong to the delivery "if_vbeln"   -> ef_subrc = 4
+*NO, no material item                            -> ef_subrc = unchanged
+FORM delivery_in_hu USING    if_venum TYPE venum
+                             if_vbeln TYPE vbeln
+                             it_items TYPE hum_hu_item_t
+                    CHANGING ef_subrc TYPE sysubrc.
+  FIELD-SYMBOLS: <item> TYPE vepovb.
+
+  READ TABLE it_items TRANSPORTING NO FIELDS
+                      WITH KEY venum = if_venum
+                      BINARY SEARCH.
+  CHECK sy-subrc IS INITIAL.
+  LOOP AT it_items ASSIGNING <item> FROM sy-tabix.
+    IF NOT <item>-venum = if_venum. EXIT. ENDIF.
+    CASE <item>-velin.
+      WHEN '1'.
+        IF <item>-vbeln = if_vbeln OR if_vbeln IS INITIAL.
+          ef_subrc = 1.
+          EXIT.
+        ELSE.
+          ef_subrc = 4.
+        ENDIF.
+      WHEN '3'.
+        PERFORM delivery_in_hu USING <item>-unvel if_vbeln it_items
+                               CHANGING ef_subrc.
+        IF ef_subrc = 1.
+          EXIT.
+        ENDIF.
+    ENDCASE.
+  ENDLOOP.
+ENDFORM.                    "delivery_in_hu
+
+
+*---------------------------------------------------------------------*
+FORM select_kzpgn CHANGING cs_item TYPE vepovb.
+  DATA: ls_tvty  TYPE tvty, ls_mtcom TYPE mtcom, ls_mara TYPE mara,
+        ls_mtcor TYPE mtcor.
+  DATA: lf_subrc TYPE sysubrc.
+
+  IF cs_item-vhart IS INITIAL.
+    ls_mtcom-kenng = 'MARA'.
+    ls_mtcom-maxtz = 50.
+    ls_mtcom-kzmpn = charx.
+    ls_mtcom-spras = sy-langu.
+    ls_mtcom-matnr = cs_item-matnr.
+    INCLUDE incl_clear_msg.
+    CALL FUNCTION 'MATERIAL_READ'
+      EXPORTING
+        schluessel         = ls_mtcom
+      IMPORTING
+        matdaten           = ls_mara
+        return             = ls_mtcor
+      EXCEPTIONS
+        material_not_found = 01
+        error_message      = 02
+        sales_not_found    = 03
+        OTHERS             = 99.
+    IF NOT sy-subrc IS INITIAL.
+      IF NOT sy-msgid IS INITIAL.
+        MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+                WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4
+                RAISING fatal_error.
+      ELSE.
+        MESSAGE e040(huselect) WITH cs_item-matnr RAISING fatal_error.
+      ENDIF.
+    ENDIF.
+    cs_item-vhart = ls_mara-vhart.
+  ENDIF.
+  CHECK NOT cs_item-vhart IS INITIAL.
+  IF cs_item-kzpgn IS INITIAL.
+    CALL FUNCTION 'V51S_TVTY_SELECT_CHECK'
+      EXPORTING
+        if_vhart = cs_item-vhart
+      IMPORTING
+        es_tvty  = ls_tvty
+        ef_rcode = lf_subrc.
+    CHECK lf_subrc IS INITIAL.
+    cs_item-kzpgn = ls_tvty-kzpgn.
+  ENDIF.
+ENDFORM.                    "select_kzpgn
+*----------------------------------------------------------------------
+FORM lf_pos_reduzieren USING    if_tabix TYPE sytabix
+                       CHANGING cs_header TYPE vekpvb
+                                ct_genpos TYPE hum_genpos_t.
+  DATA: ls_genpos TYPE hum_del_genpos.
+  DATA: lf_tabix TYPE sytabix.
+
+  IF if_tabix IS INITIAL.
+    READ TABLE ct_genpos INTO ls_genpos                     "SP_549167
+                         WITH KEY vbeln = cs_header-vbeln_gen
+                                  posnr = cs_header-posnr_gen.
+  ELSE.
+    READ TABLE ct_genpos INTO ls_genpos INDEX if_tabix.
+  ENDIF.
+  lf_tabix = sy-tabix.
+  IF sy-subrc IS INITIAL.
+    ls_genpos-lfimg_new = ls_genpos-lfimg_new - 1.
+    IF ls_genpos-lfimg_new < 0.
+      ls_genpos-lfimg_new = 0.
+    ENDIF.
+    ls_genpos-lfimg = ls_genpos-lfimg_new.
+    PERFORM position_generiert_aendern_1(sapfv50p)
+                     USING charp   ls_genpos-posnr
+                           ls_genpos-lfimg_new ls_genpos-vrkme
+                           space space 'X'.
+    IF ls_genpos-lfimg_new = 0.                             "v_976740
+      PERFORM xlips_loeschen(sapfv50p) USING space 0.
+      DELETE ct_genpos INDEX lf_tabix.
+    ELSE.
+      MODIFY ct_genpos FROM ls_genpos INDEX lf_tabix.
+    ENDIF.                                                  "^_976740
+    CLEAR: cs_header-posnr_gen, cs_header-vbeln_gen.
+  ENDIF.
+ENDFORM.                    "lf_pos_reduzieren
+
+
+*----------------------------------------------------------------------
+FORM create_genpos_entry
+                       USING    if_venum  TYPE venum
+                                if_initquantity TYPE i
+                                if_delivery TYPE vbeln
+                       CHANGING ct_genpos TYPE hum_genpos_t
+                                cf_tabix  TYPE sytabix.
+
+  DATA: ls_venum  TYPE huitem_key,
+        ls_genpos TYPE hum_del_genpos,
+        lf_z      TYPE sytabix,
+        lf_n      TYPE sytabix,
+        lf_gew    TYPE gewei,
+        lf_vol    TYPE voleh.
+  FIELD-SYMBOLS: <header> TYPE vekpvb,
+                 <item>   TYPE vepovb.
+
+  READ TABLE gt_xvekp ASSIGNING <header>
+                    WITH KEY venum = if_venum
+                    BINARY SEARCH.
+
+  IF NOT sy-subrc IS INITIAL.
+    READ TABLE gt_yvekp ASSIGNING <header>
+                    WITH KEY venum = if_venum
+                    BINARY SEARCH.
+  ENDIF.
+
+  CHECK sy-subrc IS INITIAL.
+  CLEAR: ls_genpos, ls_venum.
+  ls_genpos-vhilm = <header>-vhilm.
+  ls_genpos-vhilm_ku = <header>-vhilm_ku.                   "SP_599130
+  ls_genpos-lgort = <header>-lgort.
+  ls_genpos-werks = <header>-werks.
+  ls_genpos-vbeln = if_delivery.
+  CLEAR: ls_genpos-posnr.
+  ls_genpos-vrkme = <header>-meins.
+  ls_genpos-lfimg = 0.
+  ls_genpos-lfimg_new = if_initquantity.
+  IF NOT <header>-gewei IS INITIAL
+          AND NOT <header>-tarag IS INITIAL.
+    ls_genpos-tarag = <header>-tarag.
+    ls_genpos-gewei = <header>-gewei.
+  ENDIF.
+  IF NOT <header>-voleh IS INITIAL
+       AND NOT <header>-tavol IS INITIAL.
+    ls_genpos-tavol = <header>-tavol.
+    ls_genpos-voleh = <header>-voleh.
+  ENDIF.
+  IF ( NOT <header>-gewei IS INITIAL AND                    "SP_574129
+       NOT <header>-tarag IS INITIAL ) OR
+     ( NOT <header>-voleh IS INITIAL AND
+       NOT <header>-tavol IS INITIAL ).
+    READ TABLE gt_xvepo TRANSPORTING NO FIELDS
+                        WITH KEY venum = <header>-venum
+                        BINARY SEARCH.
+    IF sy-subrc IS INITIAL.
+      LOOP AT gt_xvepo ASSIGNING <item> FROM sy-tabix.
+        IF <item>-venum <> <header>-venum. EXIT. ENDIF.
+        CHECK <item>-velin = 2.
+        IF NOT <item>-gewei IS INITIAL AND
+           NOT <item>-brgew IS INITIAL.
+          IF ls_genpos-gewei = <item>-gewei.
+            ls_genpos-tarag = ls_genpos-tarag - <item>-brgew.
+          ELSE.
+            PERFORM conversion_factor_get
+                                     USING ls_genpos-gewei
+                                           <item>-gewei
+                                  CHANGING lf_z lf_n lf_gew.
+            ls_genpos-tarag = ls_genpos-tarag -
+                           ( <item>-brgew * lf_z / lf_n ).
+          ENDIF.
+        ENDIF.
+        IF NOT <item>-voleh IS INITIAL AND
+           NOT <item>-volum IS INITIAL.
+          IF ls_genpos-voleh = ls_genpos-voleh.
+            ls_genpos-tavol = ls_genpos-tavol - <item>-volum.
+          ELSE.
+            PERFORM conversion_factor_get
+                                     USING ls_genpos-voleh
+                                           <item>-voleh
+                                     CHANGING lf_z lf_n lf_vol.
+            ls_genpos-tavol = ls_genpos-tavol -
+                           ( <item>-volum * lf_z / lf_n ).
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+      IF ls_genpos-tarag < 0. CLEAR ls_genpos-tarag. ENDIF.
+      IF ls_genpos-tavol < 0. CLEAR ls_genpos-tavol. ENDIF.
+    ENDIF.
+  ENDIF.
+  ls_genpos-updkz = 'I'.
+  IF if_initquantity > 0.
+    ls_venum-venum = if_venum.
+    APPEND ls_venum TO ls_genpos-hus.
+  ENDIF.
+  INSERT ls_genpos INTO ct_genpos INDEX cf_tabix.
+ENDFORM.                    "create_genpos_entry
+
+*----------------------------------------------------------------------
+FORM create_genpos_entry_aux
+                       USING    if_venum     TYPE venum
+                                if_vepos     TYPE vepos
+                                if_delivery  TYPE vbeln
+                                if_initquantity TYPE i
+                       CHANGING ct_genpos TYPE hum_genpos_t
+                                cf_tabix  TYPE sytabix.
+
+  DATA: ls_venum  TYPE huitem_key,
+        ls_genpos TYPE hum_del_genpos,
+        lf_z      TYPE sytabix,
+        lf_n      TYPE sytabix,
+        lf_gew    TYPE gewei,
+        lf_vol    TYPE voleh.
+  FIELD-SYMBOLS: <header> TYPE vekpvb,
+                 <item>   TYPE vepovb.
+
+  READ TABLE gt_xvepo ASSIGNING <item>
+                    WITH KEY venum = if_venum
+                             vepos = if_vepos
+                    BINARY SEARCH.
+
+  IF NOT sy-subrc IS INITIAL.
+    READ TABLE gt_yvepo ASSIGNING <item>
+                    WITH KEY venum = if_venum
+                             vepos = if_vepos
+                    BINARY SEARCH.
+  ENDIF.
+
+  CHECK sy-subrc IS INITIAL.
+  CLEAR ls_genpos.
+  ls_genpos-vbeln = if_delivery.                            "HP_0483991
+  ls_genpos-vhilm = <item>-matnr.
+  ls_genpos-vhilm_ku = <item>-p_material.                   "SP_599130
+  ls_genpos-werks = <item>-werks.
+  ls_genpos-lgort = <item>-lgort.
+  ls_genpos-lfimg_new = ls_genpos-lfimg_new + if_initquantity.
+  IF NOT <item>-gewei IS INITIAL AND NOT <item>-brgew IS INITIAL
+     AND NOT <item>-veanz IS INITIAL.                       " v_545374
+    ls_genpos-tarag = <item>-brgew / <item>-veanz.          " ^_545374
+    ls_genpos-gewei = <item>-gewei.
+  ENDIF.
+  IF NOT <item>-voleh IS INITIAL AND NOT <item>-volum IS INITIAL
+     AND NOT <item>-veanz IS INITIAL.                       " v_545374
+    ls_genpos-tavol = <item>-volum / <item>-veanz.          " ^_545374
+    ls_genpos-voleh = <item>-voleh.
+  ENDIF.
+  CLEAR: ls_venum.
+  IF if_initquantity > 0.
+*   in case of creation we add the aux.pack.mat to subtable HUS
+    ls_venum-venum = <item>-venum.
+    ls_venum-vepos = <item>-vepos.
+    APPEND ls_venum TO ls_genpos-hus.
+  ENDIF.
+  ls_genpos-updkz = 'I'.
+  INSERT ls_genpos INTO ct_genpos INDEX cf_tabix.
+ENDFORM.                    "create_genpos_entry_aux
