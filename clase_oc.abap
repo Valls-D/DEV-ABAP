@@ -578,11 +578,12 @@ ENDMETHOD.
 *
 *ENDMETHOD.
 *****************************************************
-  METHOD _sumin_outb_delv_embal.
+    METHOD _sumin_outb_delv_embal.
     DATA: ls_hu TYPE ty_hu.
-    IF sy-uname = 'MIUSUARIO'.
+    IF sy-uname = 'D85700W'.
       CONSTANTS:
         lc_pstyv_zeln TYPE pstyv_vl   VALUE 'ZELN',
+        lc_pstyv_zelp TYPE pstyv_vl   VALUE 'ZELP',
         lc_pack_mat   TYPE matnr      VALUE 'FASS',
         lc_vpobj_inb  TYPE vekp-vpobj VALUE '03',  " Inbound delivery
         lc_velin_mat  TYPE vepo-velin VALUE '1'.   " Material
@@ -622,7 +623,27 @@ ENDMETHOD.
         " Objeto al que pertenecen las HUs
         ls_object          TYPE hum_object,
         " Posiciones pendientes de packing de la delivery
-        lt_v51vp           TYPE vse_t_v51vp.
+        lt_v51vp           TYPE vse_t_v51vp,
+        ls_p_request_out   TYPE packing_item_hu,
+        ls_item_out        TYPE vepovb,
+        lv_error_ws        TYPE xfeld,
+        lt_prot_ws         TYPE STANDARD TABLE OF prott.
+
+      SELECT vbeln, posnr, matnr, werks, lgort,
+      charg, meins, vrkme
+      FROM lips
+      WHERE vbeln = @gs_log-documento_oc
+      AND matnr = @gs_xlips-matnr
+      AND werks = @gs_xlips-werks
+      AND pstyv <> 'ZELP'
+      INTO TABLE @DATA(lt_lips_destino).
+
+      IF lines( lt_lips_destino ) <> 1.
+        _control_set_error( ).
+        RETURN.
+      ENDIF.
+
+      DATA(ls_lips_destino) = lt_lips_destino[ 1 ].
 
       "Limpiar buffer
       CALL FUNCTION 'HU_PACKING_REFRESH'.
@@ -637,8 +658,10 @@ ENDMETHOD.
         CLEAR: lt_return, lt_itemprop, lt_huitems.
         REFRESH: lt_return, lt_itemprop, lt_huitems.
 
-        ls_headerproposal-pack_mat = lc_pack_mat.
+        ls_headerproposal-hu_status_init = 'B'.
+        ls_headerproposal-pack_mat = ls_hu_src-vhilm. "lc_pack_mat.
         ls_headerproposal-plant    = gs_xlips-werks.
+        ls_headerproposal-stge_loc = gs_xlips-lgort.
 
         "Crear HU
         CALL FUNCTION 'BAPI_HU_CREATE'
@@ -666,8 +689,9 @@ ENDMETHOD.
         "Asociar cabecera de HU con la inbound delivery
         REFRESH: lt_return.
 
-        ls_huheader-pack_mat_object  = lc_vpobj_inb.
+        ls_huheader-pack_mat_object  = lc_vpobj_inb. "03
         ls_huheader-pack_mat_obj_key = gs_log-documento_oc.
+        ls_huheader-item_categ = lc_pstyv_zelp.
 
         CALL FUNCTION 'BAPI_HU_CHANGE_HEADER'
           EXPORTING
@@ -712,14 +736,14 @@ ENDMETHOD.
         ls_verpo_tab-venum_ob = ls_vekp-venum.
         ls_verpo_tab-velin = lc_velin_mat.
         ls_verpo_tab-vbeln = gs_log-documento_oc.
-        ls_verpo_tab-posnr = gs_xlips-posnr.
-        ls_verpo_tab-rfbel = gs_log-documento_oc.
-        ls_verpo_tab-rfpos = gs_xlips-posnr.
+        ls_verpo_tab-posnr = ls_lips_destino-posnr.
+        ls_verpo_tab-rfbel = ls_lips_destino-vbeln.
+        ls_verpo_tab-rfpos = ls_lips_destino-posnr.
         " Datos materiales.
-        ls_verpo_tab-matnr = gs_xlips-matnr.
-        ls_verpo_tab-werks = gs_xlips-werks.
-        ls_verpo_tab-lgort = gs_xlips-lgort.
-        ls_verpo_tab-charg = gs_xlips-charg.
+        ls_verpo_tab-matnr = ls_lips_destino-matnr.
+        ls_verpo_tab-werks = ls_lips_destino-werks.
+        ls_verpo_tab-lgort = ls_lips_destino-lgort.
+        ls_verpo_tab-charg = ls_lips_destino-charg.
         ls_verpo_tab-tmeng = ls_hu_src-vemng.
         ls_verpo_tab-vrkme = gt_hu[ 1 ]-meins.
         APPEND ls_verpo_tab TO lt_verpo_tab.
@@ -852,12 +876,15 @@ ENDMETHOD.
         ls_packing_request-werks    = gs_xlips-werks.
         ls_packing_request-charg    = gs_xlips-charg.
 
+        CLEAR: ls_p_request_out, ls_item_out.
 
         CALL FUNCTION 'HU_PACKING_AND_UNPACKING'
           EXPORTING
             is_packing_request = ls_packing_request
           IMPORTING
             ef_rcode           = lv_rcode
+            es_p_request       = ls_p_request_out
+            es_item            = ls_item_out
           CHANGING
             cs_header          = ls_header
           EXCEPTIONS
@@ -916,6 +943,508 @@ ENDMETHOD.
       CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
         EXPORTING
           wait = abap_true.
+
+*      DATA(lv_delivery) = gs_log-documento_oc.
+*
+*      DATA: ls_packing      TYPE vse_s_v51h,
+*            ls_likpvb       TYPE likpvb,
+*            lt_xvbfa        TYPE vse_t_vbfa,
+*            lt_yvbfa        TYPE vse_t_vbfa,
+*            lt_xvbapf       TYPE vse_t_vbapf,
+*            lv_data_changed TYPE xfeld.
+*
+*      " Leer la cabecera de la nueva entrega
+*      SELECT SINGLE *
+*      FROM likp
+*      WHERE vbeln = @lv_delivery
+*      INTO @DATA(ls_likp_db).
+*
+*      IF sy-subrc <> 0.
+*        _control_set_error( ).
+*        RETURN.
+*      ENDIF.
+*
+*      " Recuperar el customizing de la clase de entrega
+*      SELECT SINGLE *
+*      FROM tvlk
+*      WHERE lfart = @ls_likp_db-lfart
+*      INTO @DATA(ls_tvlk).
+*
+*      IF sy-subrc <> 0.
+*        _control_set_error( ).
+*        RETURN.
+*      ENDIF.
+*
+*      " Leer las posiciones y datos de la nueva entrega
+*      SELECT * FROM lips
+*      WHERE vbeln = @lv_delivery
+*      INTO TABLE @DATA(lt_lips_db).
+*
+*      SELECT * FROM vbuk
+*      WHERE vbeln = @lv_delivery
+*      INTO TABLE @DATA(lt_vbuk_db).
+*
+*      SELECT * FROM vbup
+*      WHERE vbeln = @lv_delivery
+*      INTO TABLE @DATA(lt_vbup_db).
+*
+*      SELECT * FROM vbpa
+*      WHERE vbeln = @lv_delivery
+*      INTO TABLE @DATA(lt_vbpa_db).
+*
+*      " Adaptar estructuras de base de datos a buffers SAP
+*      DATA(lt_xlips) = CORRESPONDING vse_t_lips( lt_lips_db ).
+*      DATA(lt_xvbuk) = CORRESPONDING vse_t_vbuk( lt_vbuk_db ).
+*      DATA(lt_xvbup) = CORRESPONDING vse_t_vbup( lt_vbup_db ).
+*      DATA(lt_xvbpa) = CORRESPONDING vsep_t_vbpa( lt_vbpa_db ).
+*
+*      ls_likpvb = CORRESPONDING #( ls_likp_db ).
+*
+*      " Contexto de entrega entrante
+*      ls_packing-object         = '03'.
+*      ls_packing-display        = 'V'.
+*      ls_packing-init           = space.
+*      ls_packing-tvlk_aufer     = ls_tvlk-aufer.
+*      ls_packing-tvlk_pmpos_gen = ls_tvlk-pm_item_gen.
+*
+*      " Prueba de procesamiento estándar
+*      CALL FUNCTION 'HU_PACKING_DELIVERY'
+*        EXPORTING
+*          is_delivery     = ls_packing
+*          is_likp         = ls_likpvb
+*          it_xlips        = lt_xlips
+*          it_xvbuk        = lt_xvbuk
+*          it_xvbup        = lt_xvbup
+*          it_xvbpa        = lt_xvbpa
+*        IMPORTING
+*          ef_data_changed = lv_data_changed
+*        CHANGING
+*          ct_xvbfa        = lt_xvbfa
+*          ct_yvbfa        = lt_yvbfa
+*          ct_xvbapf       = lt_xvbapf.
+
+      CLEAR: ls_vbkok, lv_error_ws.
+      REFRESH lt_prot_ws.
+
+      " Recuperar la categoría de documento de la entrega
+      " entrante y no la de la entrega de origen.
+      SELECT SINGLE vbtyp
+      FROM likp
+      WHERE vbeln = @gs_log-documento_oc
+      INTO @DATA(lv_vbtyp_inb).
+
+      IF sy-subrc <> 0.
+        _control_set_error( ).
+        RETURN.
+      ENDIF.
+
+      ls_vbkok-vbeln    = gs_log-documento_oc.
+      ls_vbkok-vbeln_vl = gs_log-documento_oc.
+      ls_vbkok-vbtyp_vl = lv_vbtyp_inb.
+
+      " Procesar el embalaje mediante la actualización
+      " estándar de la entrega.
+      CALL FUNCTION 'WS_DELIVERY_UPDATE_2'
+        EXPORTING
+          vbkok_wa               = ls_vbkok
+          delivery               = gs_log-documento_oc
+          synchron               = abap_true
+          commit                 = space
+          if_error_messages_send = space
+        IMPORTING
+          ef_error_any           = lv_error_ws
+        TABLES
+          verko_tab              = lt_verko_tab
+          verpo_tab              = lt_verpo_tab
+          prot                   = lt_prot_ws
+        EXCEPTIONS
+          error_message          = 1
+          OTHERS                 = 2.
+
+      " Comprobar errores devueltos por el estándar.
+      IF sy-subrc <> 0
+      OR lv_error_ws = abap_true
+      OR line_exists( lt_prot_ws[ msgty = 'E' ] )
+      OR line_exists( lt_prot_ws[ msgty = 'A' ] )
+      OR line_exists( lt_prot_ws[ msgty = 'X' ] ).
+
+        ROLLBACK WORK.
+        _control_set_error( ).
+        RETURN.
+      ENDIF.
+
+      " Confirmar los cambios de entrega y embalaje.
+      COMMIT WORK AND WAIT.
+    ELSE.
+
+      IF 1 = 1.
+        REFRESH: gt_messages, gt_bdcdata.
+        CLEAR: gs_message.
+
+        " Pantalla inicial
+        APPEND VALUE #( program = 'SAPMV50A'  dynpro = '4104' dynbegin = abap_true ) TO gt_bdcdata.
+        APPEND VALUE #( fnam = 'BDC_CURSOR'   fval = 'LIKP-VBELN' )                  TO gt_bdcdata.
+        APPEND VALUE #( fnam = 'BDC_OKCODE'   fval = '=VERP_T' )                     TO gt_bdcdata.
+        APPEND VALUE #( fnam = 'LIKP-VBELN'   fval = gs_log-documento_oc )           TO gt_bdcdata.
+
+        " Pantalla embalado
+        APPEND VALUE #( program = 'SAPLV51G' dynpro = '6000' dynbegin = abap_true ) TO gt_bdcdata.
+        APPEND VALUE #( fnam = 'BDC_OKCODE'  fval = '=ENTR' )                              TO gt_bdcdata.
+        APPEND VALUE #( fnam = 'BDC_SUBSCR'  fval = 'SAPLV51G                          6010TAB' ) TO gt_bdcdata.
+
+        DATA lv_index TYPE n LENGTH 2.
+        lv_index = sy-tabix.
+        LOOP AT gt_hu INTO ls_hu.
+          lv_index = sy-tabix.
+          ls_hu-vhilm = 'FASS'. "DEU8C8E 28.06.2026
+          APPEND VALUE #( fnam = 'BDC_CURSOR'
+                          fval = |V51VE-VHILM({ lv_index })| ) TO gt_bdcdata.
+          APPEND VALUE #( fnam = |V51VE-VHILM({ lv_index })|
+                          fval = ls_hu-vhilm )                  TO gt_bdcdata.
+*      APPEND VALUE #( fnam = |V51VE-SELKZ({ lv_index })|
+*                      fval = 'X' )                          TO gt_bdcdata.
+*      APPEND VALUE #( fnam = |V51VP-SELKZ({ lv_index })|
+*                      fval = 'X' )                          TO gt_bdcdata.
+          CLEAR:ls_hu.
+        ENDLOOP.
+
+        CLEAR: lv_index.
+        DATA lv_vemng TYPE char30.
+        LOOP AT gt_hu INTO ls_hu.
+          lv_vemng = |{ ls_hu-vemng }|.
+          CONDENSE lv_vemng NO-GAPS.
+          REPLACE ALL OCCURRENCES OF '.' IN lv_vemng WITH ','.
+          lv_index = |{ sy-tabix ALIGN = RIGHT WIDTH = 2 PAD = '0' }|.
+          APPEND VALUE #( program = 'SAPLV51G' dynpro = '6000' dynbegin = abap_true ) TO gt_bdcdata.
+          APPEND VALUE #( fnam = 'BDC_OKCODE' fval = '=ENTR' )             TO gt_bdcdata.
+          APPEND VALUE #( fnam = 'BDC_SUBSCR' fval = 'SAPLV51G                          6010TAB' ) TO gt_bdcdata.
+          APPEND VALUE #( fnam = 'BDC_CURSOR'   fval = 'V51VP-TMENG(01)' )                  TO gt_bdcdata.
+          APPEND VALUE #( fnam = 'V51VP-TMENG(01)'   fval = lv_vemng )                  TO gt_bdcdata.
+
+          APPEND VALUE #( program = 'SAPLV51G' dynpro = '6000' dynbegin = abap_true ) TO gt_bdcdata.
+          APPEND VALUE #( fnam = 'BDC_OKCODE' fval = '=HU_VERP' )             TO gt_bdcdata.
+          APPEND VALUE #( fnam = 'BDC_SUBSCR' fval = 'SAPLV51G                          6010TAB' ) TO gt_bdcdata.
+          APPEND VALUE #( fnam = 'BDC_CURSOR'   fval = 'V51VP-MATNR(01)' )                  TO gt_bdcdata.
+          APPEND VALUE #( fnam = |V51VE-SELKZ({ lv_index })|   fval = 'X' )                  TO gt_bdcdata.
+          APPEND VALUE #( fnam = 'V51VP-SELKZ(01)'   fval = 'X' )                  TO gt_bdcdata.
+          CLEAR:ls_hu.
+        ENDLOOP.
+
+        APPEND VALUE #( program = 'SAPLV51G' dynpro = '6000' dynbegin = abap_true ) TO gt_bdcdata.
+        APPEND VALUE #( fnam = 'BDC_OKCODE'          fval = '=SICH' )                              TO gt_bdcdata.
+        APPEND VALUE #( fnam = 'BDC_SUBSCR'          fval = 'SAPLV51G                          6010TAB' ) TO gt_bdcdata.
+        APPEND VALUE #( fnam = 'BDC_CURSOR'          fval = 'V51VE-EXIDV(01)' )                    TO gt_bdcdata.
+
+
+        DATA(lv_mode) = gc_mode.
+        CALL TRANSACTION 'VL32N' USING gt_bdcdata MODE lv_mode UPDATE 'S' MESSAGES INTO gt_messages.
+
+      ELSE.
+
+********************************************" SERGI PLAN A
+*    "Sustitución BI por BAPIs
+*
+*    DATA ls_headerproposal TYPE bapihuhdrproposal.
+*    DATA lt_return TYPE TABLE OF bapiret2.
+*    DATA lv_hukey TYPE bapihukey-hu_exid.
+*    DATA lt_verko TYPE TABLE OF  verko.
+*    DATA lt_verpo TYPE TABLE OF  verpo.
+*    DATA ls_verpo TYPE verpo.
+*    DATA lt_prot TYPE TABLE OF prott.
+*    DATA lv_vemng TYPE char30.
+*    DATA lv_index TYPE n LENGTH 2.
+*
+*    CLEAR: lv_index.
+*
+*    LOOP AT gt_hu INTO DATA(ls_hu).
+*
+*      CLEAR: ls_headerproposal, lv_hukey, ls_verpo.
+*      REFRESH: lt_return, lt_verko, lt_verpo, lt_prot.
+*
+**      ls_headerproposal-pack_mat = ls_hu-vhilm.
+*      ls_headerproposal-pack_mat = 'FASS'.
+*
+*      CALL FUNCTION 'BAPI_HU_CREATE'
+*        EXPORTING
+*          headerproposal = ls_headerproposal
+*        IMPORTING
+**         HUHEADER       =
+*          hukey          = lv_hukey
+*        TABLES
+**         ITEMSPROPOSAL  =
+**         ITEMSSERIALNO  =
+*          return         = lt_return
+**         HUITEM         =
+**         CWM_ITEMSPROPOSAL       =
+**         CWM_HUITEM     =
+*        .
+*
+*      lv_vemng = |{ ls_hu-vemng }|.
+**      CONDENSE lv_vemng NO-GAPS.
+**      REPLACE ALL OCCURRENCES OF '.' IN lv_vemng WITH ','.
+**      lv_index = |{ sy-tabix ALIGN = RIGHT WIDTH = 2 PAD = '0' }|.
+*
+**      ls_verpo-exidv_ob = lv_hukey.
+*
+*      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+*        EXPORTING
+*          input  = lv_hukey  " El número de 10 posiciones de la BAPI_HU_CREATE
+*        IMPORTING
+*          output = ls_verpo-exidv_ob.
+*
+*      ls_verpo-velin = 1.
+*      ls_verpo-vbeln = gs_log-documento_oc.
+*      ls_verpo-posnr = '000010'.
+*      ls_verpo-tmeng = lv_vemng.
+*      ls_verpo-matnr = 'W0WHT000868'.
+*
+*      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+*        EXPORTING
+*          input  = ls_verpo-matnr
+*        IMPORTING
+*          output = ls_verpo-matnr.
+*
+*
+*      ls_verpo-werks = '4900'.
+*      ls_verpo-lgort = 'OC01'.
+*
+*      APPEND ls_verpo TO lt_verpo.
+*
+*      CALL FUNCTION 'SD_DELIVERY_UPDATE_PACKING'
+*        EXPORTING
+*          delivery  = gs_log-documento_oc
+*          commit    = ' '
+*          synchron  = ' '
+*        TABLES
+*          verko_tab = lt_verko
+*          verpo_tab = lt_verpo
+*          prot      = lt_prot
+**     EXCEPTIONS
+**         UPDATE_NOT_POSSIBLE       = 1
+**         OTHERS    = 2
+*        .
+*      IF sy-subrc <> 0.
+** Implement suitable error handling here
+*      ENDIF.
+*
+*      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+*        EXPORTING
+*          wait = 'X'.
+*
+*
+*    ENDLOOP.
+
+
+********************************************" JOSEP PLAN B
+**
+*REFRESH gt_messages.
+*  CLEAR   gs_message.
+*
+*  DATA: lv_vbeln  TYPE vbeln_vl,
+*        lv_venum  TYPE venum,
+*        lv_exidv  TYPE exidv,
+*        lt_return TYPE bapiret2_t.
+*
+*  lv_vbeln = gs_log-documento_oc.
+*
+*  " 1. Inicializar el buffer de embalaje
+*  CALL FUNCTION 'HU_PACKING_REFRESH'.
+*
+*  " 2. Cargar la entrega en el buffer de embalaje
+*  CALL FUNCTION 'HU_GET_HUS_TO_DELIVERY'
+*    EXPORTING
+*      if_vbeln    = lv_vbeln
+*    EXCEPTIONS
+*      not_found   = 1
+*      input_error = 2
+*      OTHERS      = 3.
+*  IF sy-subrc <> 0.
+**    APPEND VALUE #( type = 'E' id = sy-msgid number = sy-msgno
+**                    message_v1 = sy-msgv1 message_v2 = sy-msgv2
+**                    message_v3 = sy-msgv3 message_v4 = sy-msgv4 ) TO gt_messages.
+*    RETURN.
+*  ENDIF.
+*
+*  " 3 + 4. Por cada HU: crear la HU y embalar su posición/cantidad
+*  LOOP AT gt_hu INTO ls_hu.
+*
+*    " 3. Crear la HU con el material de embalaje FASS
+*    CLEAR: lv_venum, lv_exidv.
+*    CALL FUNCTION 'HU_CREATE_HU'
+*      EXPORTING
+*        if_vhilm  = 'FASS'              " material de embalaje
+*        if_werks  = '4900'       " centro
+**        if_lgort  = ls_hu-lgort         " almacén (si aplica)
+*      IMPORTING
+*        ef_venum  = lv_venum            " nº interno de HU creada
+*        ef_exidv  = lv_exidv            " nº externo de HU
+*      EXCEPTIONS
+*        error     = 1
+*        OTHERS    = 2.
+*    IF sy-subrc <> 0.
+**      APPEND VALUE #( type = 'E' id = sy-msgid number = sy-msgno
+**                      message_v1 = sy-msgv1 message_v2 = sy-msgv2
+**                      message_v3 = sy-msgv3 message_v4 = sy-msgv4 ) TO gt_messages.
+*      CALL FUNCTION 'HU_PACKING_REFRESH'.   " limpiar buffer ante error
+*      RETURN.
+*    ENDIF.
+*
+*    " 4. Embalar la posición de entrega en la HU recién creada
+*    CALL FUNCTION 'HU_PACK_ONE_ITEM'
+*      EXPORTING
+*        if_venum    = lv_venum          " HU destino
+*        if_vbeln    = lv_vbeln          " entrega
+*        if_posnr    = ls_hu-posnr       " posición de entrega
+*        if_quantity = ls_hu-vemng       " cantidad a embalar
+*        if_meins    = ls_hu-meins       " unidad de medida
+*      EXCEPTIONS
+*        error       = 1
+*        OTHERS      = 2.
+*    IF sy-subrc <> 0.
+*      APPEND VALUE #( type = 'E' id = sy-msgid number = sy-msgno
+*                      message_v1 = sy-msgv1 message_v2 = sy-msgv2
+*                      message_v3 = sy-msgv3 message_v4 = sy-msgv4 ) TO gt_messages.
+*      CALL FUNCTION 'HU_PACKING_REFRESH'.
+*      RETURN.
+*    ENDIF.
+*
+*  ENDLOOP.
+*
+*  " 5. Traspasar el embalaje a la entrega (en memoria)
+*  CALL FUNCTION 'HU_POST'
+*    EXCEPTIONS
+*      error  = 1
+*      OTHERS = 2.
+*  IF sy-subrc <> 0.
+*    APPEND VALUE #( type = 'E' id = sy-msgid number = sy-msgno
+*                    message_v1 = sy-msgv1 message_v2 = sy-msgv2
+*                    message_v3 = sy-msgv3 message_v4 = sy-msgv4 ) TO gt_messages.
+*    CALL FUNCTION 'HU_PACKING_REFRESH'.
+*    RETURN.
+*  ENDIF.
+*
+*  " 6. Grabar la entrega
+*  CALL FUNCTION 'WS_DELIVERY_UPDATE_2'
+*    EXPORTING
+*      vbkok_wa  = VALUE vbkok( vbeln_vl = lv_vbeln )
+*      commit    = abap_false              " controlamos el commit nosotros
+*      delivery  = lv_vbeln
+*    TABLES
+*      prot      = gt_messages.
+*
+*  READ TABLE gt_messages TRANSPORTING NO FIELDS WITH KEY type = 'E'.
+*  IF sy-subrc = 0.
+*    CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+*  ELSE.
+*    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+*      EXPORTING
+*        wait = abap_true.
+*  ENDIF.
+
+
+********************************************" JOSEP PLAN C
+        " REVISAR INCLUDE /VWK/LZF0WM_MOMAF01
+        "Refresca estructuras HU
+
+*        DATA: lt_messages TYPE STANDARD TABLE OF huitem_messages,
+*              lt_items    TYPE huitm_prop,
+*              lt_vepo     TYPE hum_hu_item_t.
+*        DATA: ls_header      TYPE huhdr_proposal,
+*              ls_items       TYPE huitm_proposal,
+*              ls_vekp        TYPE vekpvb,
+*              ls_plant_stloc TYPE hum_plant_stloc,
+*              ls_messages    TYPE huitem_messages.
+*        DATA: ls_params TYPE /vwk/zf0crtkgim3,
+*              lt_params TYPE STANDARD TABLE OF /vwk/zf0crtkgim3.
+*        DATA: "l_lgnum TYPE lgnum,
+*          l_lgtyp TYPE lgtyp,
+*          l_lgpla TYPE lgpla,
+*          l_delay TYPE i,
+*          l_id    TYPE zid,
+*          l_value TYPE zvalue,
+*          l_error TYPE flag.
+*
+*        CALL FUNCTION 'HU_PACKING_REFRESH'.
+*        FREE lt_messages.
+*
+*        CLEAR ls_plant_stloc.
+*        ls_plant_stloc-plant = '4900'.                      "0501
+*        ls_plant_stloc-move_stloc = gc_lgnum.
+*
+*        ls_plant_stloc-stge_loc = l_value(4).                   "230 ó 228
+*
+*
+*        "Inicializa empaquetado antes de crear HU de picking que incluya items
+*        CALL FUNCTION 'HU_INITIALIZE_PACKING'
+*          EXPORTING
+*            if_process     = 'B'
+*            is_plant_stloc = ls_plant_stloc
+*          IMPORTING
+*            et_messages    = lt_messages[]
+*          EXCEPTIONS
+*            not_possible   = 1
+*            OTHERS         = 2.
+
+
+*   l_lgtyp = l_value(3).                        "902 ó 906
+*   l_lgpla = l_value(10).                       "RFID
+*
+*
+*      "Datos CABECERA
+*      ls_header-exidv   = is_hu_data-matric.
+*      ls_header-exida   = 'C'.
+*      ls_header-vhilm   = is_hu_data-tipcon.
+*
+*      "Datos POSICIÓN
+*      FREE lt_items.
+*      CLEAR ls_items.
+*      ls_items-exidv    = is_hu_data-matric.
+*      ls_items-velin    = '1'.
+*      ls_items-quantity = is_hu_data-menge.
+*      ls_items-matnr    = is_hu_data-matnr.
+*      ls_items-werks    = ls_plant_stloc-plant.
+*      ls_items-lgort    = ls_plant_stloc-stge_loc.
+*      ls_items-umlgo    = ls_plant_stloc-move_stloc.
+*      ls_items-lgtyp    = l_lgtyp.
+*      ls_items-lgpla    = l_lgpla.
+*      ls_items-wdatu    = is_hu_data-fecini.
+*      APPEND ls_items TO lt_items.
+*
+*      "Creación HU
+*      FREE lt_messages.
+*      CALL FUNCTION 'HU_CREATE_ONE_HU'
+*        EXPORTING
+*          if_create_hu       = 'X'
+*          is_header_proposal = ls_header
+*          it_items           = lt_items[]
+*        IMPORTING
+*          es_header          = ls_vekp
+*          et_items           = lt_vepo[]
+*          et_messages        = lt_messages[]
+*        EXCEPTIONS
+*          input_missing      = 1
+*          not_possible       = 2
+*          header_error       = 3
+*          item_error         = 4
+*          serial_nr_error    = 5
+*          fatal_error        = 6
+*          OTHERS             = 7.
+*
+*      "Graba HU en BD
+*      FREE lt_messages.
+*      CALL FUNCTION 'HU_POST'
+*        EXPORTING
+*          if_synchron   = 'X'
+*          if_commit     = 'X'
+*          if_no_refresh = space
+*        IMPORTING
+*          et_messages   = lt_messages[].
+
+      ENDIF.
+    ENDIF.
+
+    " POR ULTIMO CREA LA OT, se puede ver.
+  ENDMETHOD.
 
 
     ELSE.
