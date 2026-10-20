@@ -603,6 +603,9 @@ MODULE tratar_datos INPUT.
         INTO ( @zfieprov-zterm, @zfieprov-zwels ).
       ENDIF.
 
+      " Completar NIF1, ramo y email desde datos del BP
+      PERFORM recuperar_datos_bp CHANGING zfieprov.
+
       " Registrar BP recuperado
       <ls_bp>-partner = lv_partner.
 
@@ -1048,6 +1051,24 @@ FORM verif .
       EXIT.
 
     ENDIF.
+
+    " Verificar que el NIF no pertenece a otro BP
+    DATA lv_bp_duplicado TYPE bu_partner.
+
+    CLEAR lv_bp_duplicado.
+
+    PERFORM validar_nif_duplicado USING lt_t_1 CHANGING lv_bp_duplicado.
+
+    IF lv_bp_duplicado IS NOT INITIAL.
+
+      lv_verif = sy-tabix.
+      lv_cursor_field = 'ZFIEPROV-CIF'.
+      lv_verif_t =
+      |NIF duplicado en BP { lv_bp_duplicado }|.
+
+      EXIT.
+    ENDIF.
+
 
 * Mod validación RNC - AS
     DATA: lc_error TYPE char1,
