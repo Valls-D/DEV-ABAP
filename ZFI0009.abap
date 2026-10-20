@@ -180,6 +180,9 @@ CONSTANTS:
   gc_role_flvn00 TYPE bu_partnerrole VALUE 'FLVN00',
   gc_role_flvn01 TYPE bu_partnerrole VALUE 'FLVN01',
   gc_bp_org      TYPE bu_type VALUE '2',
+  gc_bp_person     TYPE bu_type VALUE '1',
+  gc_contact_group TYPE bu_group VALUE 'ZPDC',
+  gc_rel_contact   TYPE bu_reltyp VALUE 'BUR001',
   gc_rfc_ext_mx  TYPE bptaxnumxl VALUE 'XEXX010101000'.
 "DTT - GAP012_BP
 
@@ -747,6 +750,14 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
       RETURNING
         VALUE(rs_result) TYPE ty_result.
 
+    METHODS maintain_contact_person
+      CHANGING
+        cs_prov          TYPE zfieprov
+        cs_context       TYPE ty_context
+        cs_data          TYPE cvis_ei_extern
+      RETURNING
+        VALUE(rs_result) TYPE ty_result.
+
 
   PRIVATE SECTION.
 
@@ -831,11 +842,11 @@ CLASS zcl_bp DEFINITION FINAL CREATE PUBLIC.
         cs_prov       TYPE zfieprov
         cs_purchasing TYPE vmds_ei_purchasing.
 
-    METHODS map_contact_person
-      CHANGING
-        cs_prov    TYPE zfieprov
-        cs_context TYPE ty_context
-        cs_data    TYPE cvis_ei_extern.
+*    METHODS map_contact_person
+*      CHANGING
+*        cs_prov    TYPE zfieprov
+*        cs_context TYPE ty_context
+*        cs_data    TYPE cvis_ei_extern.
 
     METHODS call_api
       IMPORTING
@@ -1034,12 +1045,12 @@ CLASS zcl_bp IMPLEMENTATION.
       cs_prov = cs_prov
       cs_data = ls_data ).
 
-    " Persona de contacto
-    map_contact_person(
-    CHANGING
-      cs_prov    = cs_prov
-      cs_context = ls_context
-      cs_data    = ls_data ).
+*    " Persona de contacto
+*    map_contact_person(
+*    CHANGING
+*      cs_prov    = cs_prov
+*      cs_context = ls_context
+*      cs_data    = ls_data ).
 
     " Banco
     map_bank_data(
@@ -1081,6 +1092,21 @@ CLASS zcl_bp IMPLEMENTATION.
         ENDIF.
         RETURN.
       ENDIF.
+    ENDIF.
+
+    DATA(ls_contact_result) =  maintain_contact_person(
+    CHANGING
+      cs_prov    = cs_prov
+      cs_context = ls_context
+      cs_data    = ls_data ).
+
+    IF ls_contact_result-success = abap_false.
+
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+      rs_result-success = abap_false.
+      rs_result-message = ls_contact_result-message.
+      RETURN.
+
     ENDIF.
 
     " Ejecutar API
@@ -1329,10 +1355,6 @@ CLASS zcl_bp IMPLEMENTATION.
 
     <fs_address>-data-postal-data-city = cs_prov-poblac.
     <fs_address>-data-postal-DATAx-city = abap_true.
-    <fs_address>-data-postal-data-street = cs_prov-direc.
-    <fs_address>-data-postal-DATAx-street = abap_true.
-    <fs_address>-data-postal-data-str_suppl1 = cs_prov-direc_2.
-    <fs_address>-data-postal-DATAx-str_suppl1 = abap_true.
     <fs_address>-data-postal-data-postl_cod1 = cs_prov-cod_post.
     <fs_address>-data-postal-DATAx-postl_cod1 = abap_true.
     <fs_address>-data-postal-data-region = cs_prov-region.
@@ -1341,6 +1363,24 @@ CLASS zcl_bp IMPLEMENTATION.
     <fs_address>-data-postal-DATAx-country = abap_true.
     <fs_address>-data-postal-data-langu = cs_prov-spras.
     <fs_address>-data-postal-DATAx-langu = abap_true.
+
+    <fs_address>-data-postal-data-street = cs_prov-direc(60).
+    <fs_address>-data-postal-DATAx-street = abap_true.
+    DATA(lv_len) = strlen( cs_prov-direc ).
+    IF lv_len > 60.
+*    <fs_address>-data-postal-data-str_suppl1 = cs_prov-direc_2.
+      <fs_address>-data-postal-data-str_suppl1 = cs_prov-direc+60(40).
+      <fs_address>-data-postal-DATAx-str_suppl1 = abap_true.
+    ELSEIF lv_len > 100.
+      <fs_address>-data-postal-data-str_suppl2 = cs_prov-direc+60(40).
+      <fs_address>-data-postal-DATAx-str_suppl2 = abap_true.
+    ELSEIF lv_len > 140.
+      <fs_address>-data-postal-data-str_suppl3 = cs_prov-direc+100(40).
+      <fs_address>-data-postal-DATAx-str_suppl3 = abap_true.
+    ELSEIF lv_len > 180.
+      <fs_address>-data-postal-data-location = cs_prov-direc+180(40).
+      <fs_address>-data-postal-DATAx-location = abap_true.
+    ENDIF.
 
     IF cs_prov-spras IS NOT INITIAL.
       CALL FUNCTION 'CONVERSION_EXIT_ISOLA_OUTPUT'
@@ -1569,40 +1609,40 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
   ENDMETHOD.
 
-  METHOD map_contact_person.
-
-    DATA: lv_contact_id TYPE bapicontact_01-contact.
-
-    FIELD-SYMBOLS: <fs_contact> TYPE vmds_ei_contacts.
-
-    CHECK cs_context-vendor_task = gc_task_insert.
-
-    " DZSABE_K no es obligatorio
-    CHECK cs_prov-dzsabe_k IS NOT INITIAL.
-
-    " Obtener número interno para la persona de contacto
-    CALL FUNCTION 'BAPI_PARTNEREMPLOYEE_GETINTNUM'
-      EXPORTING
-        quantity  = 1
-      IMPORTING
-        contactid = lv_contact_id.
-
-    APPEND INITIAL LINE TO cs_data-vendor-central_data-contact-contacts ASSIGNING <fs_contact>.
-
-    " Crear nueva persona de contacto
-    <fs_contact>-task = gc_task_insert.
-
-    " Identificador KNVK-PARNR
-    <fs_contact>-data_key-parnr = lv_contact_id.
-
-    " Crear los datos de dirección/nombre del contacto
-    <fs_contact>-address_type_3-task = gc_task_insert.
-
-    " El BDC anterior únicamente informaba KNVK-NAME1.
-    <fs_contact>-address_type_3-postal-data-fullname = cs_prov-dzsabe_k.
-    <fs_contact>-address_type_3-postal-datax-fullname = abap_true.
-
-  ENDMETHOD.
+*  METHOD map_contact_person.
+*
+*    DATA: lv_contact_id TYPE bapicontact_01-contact.
+*
+*    FIELD-SYMBOLS: <fs_contact> TYPE vmds_ei_contacts.
+*
+*    CHECK cs_context-vendor_task = gc_task_insert.
+*
+*    " DZSABE_K no es obligatorio
+*    CHECK cs_prov-dzsabe_k IS NOT INITIAL.
+*
+*    " Obtener número interno para la persona de contacto
+*    CALL FUNCTION 'BAPI_PARTNEREMPLOYEE_GETINTNUM'
+*      EXPORTING
+*        quantity  = 1
+*      IMPORTING
+*        contactid = lv_contact_id.
+*
+*    APPEND INITIAL LINE TO cs_data-vendor-central_data-contact-contacts ASSIGNING <fs_contact>.
+*
+*    " Crear nueva persona de contacto
+*    <fs_contact>-task = gc_task_insert.
+*
+*    " Identificador KNVK-PARNR
+*    <fs_contact>-data_key-parnr = lv_contact_id.
+*
+*    " Crear los datos de dirección/nombre del contacto
+*    <fs_contact>-address_type_3-task = gc_task_insert.
+*
+*    " El BDC anterior únicamente informaba KNVK-NAME1.
+*    <fs_contact>-address_type_3-postal-data-fullname = cs_prov-dzsabe_k.
+*    <fs_contact>-address_type_3-postal-datax-fullname = abap_true.
+*
+*  ENDMETHOD.
 
 *--------------------------------------------------------------------*
 *& PARTNER - CENTRAL_DATA - BANKDETAIL
@@ -2169,8 +2209,7 @@ CLASS zcl_bp IMPLEMENTATION.
     ENDIF.
 
     " Añadir sociedad destino
-    APPEND ls_company
-    TO ls_data-vendor-company_data-company.
+    APPEND ls_company TO ls_data-vendor-company_data-company.
 
     " Ejecutar CL_MD_BP_MAINTAIN
     DATA(lt_return) = call_api( is_data = ls_data ).
@@ -2393,6 +2432,212 @@ CLASS zcl_bp IMPLEMENTATION.
     ELSE.
       CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
     ENDIF.
+  ENDMETHOD.
+
+  METHOD maintain_contact_person.
+
+    FIELD-SYMBOLS:
+      <fs_relation> TYPE burs_ei_extern,
+      <fs_return>   TYPE bapiret2.
+
+    DATA:
+      ls_centraldata       TYPE bapibus1006_central,
+      ls_centraldataperson TYPE bapibus1006_central_person,
+      lt_bapi_return       TYPE STANDARD TABLE OF bapiret2,
+      lv_contact_partner   TYPE bu_partner,
+      lv_nrrng             TYPE tb001-nrrng,
+      lv_externind         TYPE nriv-externind,
+      lv_message           TYPE string.
+
+    rs_result-success = abap_true.
+
+    " Mantener el comportamiento del proceso antiguo:
+    " la persona de contacto se crea cuando se crea el Supplier
+    "
+    " Si el Supplier ya existe y estamos modificándolo,
+    " no generamos automáticamente otro BP Persona
+    CHECK cs_context-vendor_task = gc_task_insert.
+    CHECK cs_prov-dzsabe_k IS NOT INITIAL.
+
+    " 1. EVITAR DUPLICAR UNA RELACIÓN EXISTENTE
+    " - El BP organización ya existe
+    " - Todavía no existe como Supplier
+    " - Ya tiene una persona de contacto BUR001 con ese nombre
+
+    IF cs_prov-partner IS NOT INITIAL.
+
+      SELECT SINGLE rel~partner2
+      FROM but050 AS rel
+      INNER JOIN but000 AS person
+      ON person~partner = rel~partner2
+      WHERE rel~partner1 = @cs_prov-partner
+      AND rel~reltyp    = @gc_rel_contact
+      AND rel~date_from <= @sy-datum
+      AND rel~date_to   >= @sy-datum
+      AND person~type   = @gc_bp_person
+      AND person~name_last = @cs_prov-dzsabe_k
+      INTO @DATA(lv_existing_contact).
+
+      IF sy-subrc = 0.
+
+        " Ya existe esta persona como contacto de la organización
+        " No crear otro BP ni otra relación
+        rs_result-partner = lv_existing_contact.
+
+        RETURN.
+
+      ENDIF.
+
+    ENDIF.
+
+    " 2. VALIDAR AGRUPACIÓN ZPDC
+    " Necesitamos que ZPDC exista y tenga un intervalo de numeración asociado
+    SELECT SINGLE nrrng
+    FROM tb001
+    WHERE bu_group = @gc_contact_group
+    INTO @lv_nrrng.
+
+    IF sy-subrc <> 0 OR lv_nrrng IS INITIAL.
+
+      rs_result-success = abap_false.
+      rs_result-message = |NO existe una configuración válida para la agrupación BP { gc_contact_group }|.
+      RETURN.
+
+    ENDIF.
+
+    " 3. COMPROBAR QUE LA NUMERACIÓN SEA INTERNA
+    " El intervalo de ZPDC debe ser interno
+    SELECT SINGLE externind
+    FROM nriv
+    WHERE object     = 'BU_PARTNER'
+    AND subobject  = @space
+    AND nrrangenr  = @lv_nrrng
+    AND toyear     = '0000'
+    INTO @lv_externind.
+
+    IF sy-subrc <> 0.
+
+      rs_result-success = abap_false.
+      rs_result-message = |NO se encontró el intervalo { lv_nrrng } de la agrupación BP { gc_contact_group }|.
+      RETURN.
+
+    ENDIF.
+
+
+    IF lv_externind = abap_true.
+
+      rs_result-success = abap_false.
+      rs_result-message =  |La agrupación { gc_contact_group } utiliza numeración externa; | &&
+      |NO se puede generar automáticamente la persona de contacto|.
+      RETURN.
+
+    ENDIF.
+
+
+    " 4. PREPARAR DATOS DEL BP PERSONA
+    CLEAR: ls_centraldata, ls_centraldataperson, lv_contact_partner.
+    REFRESH: lt_bapi_return.
+
+    ls_centraldataperson-lastname = cs_prov-dzsabe_k.
+
+    " 5. CREAR BUSINESS PARTNER PERSONA
+    " CATEGORY = 1  -> Persona
+    " GROUP    = ZPDC
+    CALL FUNCTION 'BAPI_BUPA_CREATE_FROM_DATA'
+      EXPORTING
+        partnercategory   = gc_bp_person
+        partnergroup      = gc_contact_group
+        centraldata       = ls_centraldata
+        centraldataperson = ls_centraldataperson
+      IMPORTING
+        businesspartner   = lv_contact_partner
+      TABLES
+        return            = lt_bapi_return.
+
+    " 6. EVALUAR RESULTADO DE LA CREACIÓN
+    LOOP AT lt_bapi_return ASSIGNING <fs_return> WHERE type = 'E' OR type = 'A' OR type = 'X'.
+
+      rs_result-success = abap_false.
+
+      CLEAR lv_message.
+
+      IF <fs_return>-message IS NOT INITIAL.
+        lv_message = <fs_return>-message.
+      ELSE.
+
+        " Fallback para reconstruir el mensaje SAP
+        MESSAGE ID <fs_return>-id
+        TYPE 'S'
+        NUMBER <fs_return>-number
+        WITH <fs_return>-message_v1
+        <fs_return>-message_v2
+        <fs_return>-message_v3
+        <fs_return>-message_v4
+        INTO lv_message.
+
+      ENDIF.
+
+      " Conservar todos los errores relevantes
+      IF rs_result-message IS INITIAL.
+        rs_result-message = lv_message.
+      ELSE.
+        rs_result-message = |{ rs_result-message } / { lv_message }|.
+      ENDIF.
+
+    ENDLOOP.
+
+
+    " Si la BAPI ha devuelto error, MAINTAIN_BP hará el rollback
+    IF rs_result-success = abap_false.
+      RETURN.
+    ENDIF.
+
+    " 7. ASEGURAR QUE SAP DEVOLVIÓ EL BP PERSONA
+    " Número para PARTNER2 de la relación BUR001
+    IF lv_contact_partner IS INITIAL.
+
+      rs_result-success = abap_false.
+      rs_result-message = |La persona de contacto { cs_prov-dzsabe_k } fue procesada | &&
+      |pero NO se pudo recuperar su número BP|.
+      RETURN.
+
+    ENDIF.
+
+    rs_result-partner = lv_contact_partner.
+
+    " 8. CREAR RELACIÓN ORGANIZACIÓN -> PERSONA
+    APPEND INITIAL LINE  TO cs_data-partner_relation ASSIGNING <fs_relation>.
+
+    <fs_relation>-header-object_task = gc_task_insert.
+
+    " PARTNER 1: organización / proveedor
+    IF cs_prov-partner IS NOT INITIAL.
+
+      " Organización ya existente:
+      " conocemos directamente el número BP
+      <fs_relation>-header-object_instance-partner1-bpartner = cs_prov-partner.
+
+    ELSE.
+
+      " Organización nueva:
+      <fs_relation>-header-object_instance-partner1-bpartnerguid = cs_context-partner_guid.
+
+    ENDIF.
+
+    " PARTNER 2: persona de contacto recién creada
+    <fs_relation>-header-object_instance-partner2-bpartner = lv_contact_partner.
+    " Relación estándar Persona de Contacto
+    <fs_relation>-header-object_instance-relat_category = gc_rel_contact.
+    " Fin de validez
+    <fs_relation>-header-object_instance-date_to = '99991231'.
+
+    " 9. DATOS CENTRALES DE LA RELACIÓN
+    <fs_relation>-central_data-main-task = gc_task_insert.
+    <fs_relation>-central_data-main-data-date_from = sy-datum.
+    <fs_relation>-central_data-main-data-date_to_new = '99991231'.
+    <fs_relation>-central_data-main-datax-date_from = abap_true.
+    <fs_relation>-central_data-main-datax-date_to_new = abap_true.
+
   ENDMETHOD.
 ENDCLASS.
 
