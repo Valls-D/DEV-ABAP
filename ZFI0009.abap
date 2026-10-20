@@ -202,7 +202,7 @@ START-OF-SELECTION.
 
   PERFORM llamar_dynpro.
 
-  *----------------------------------------------------------------------*
+*----------------------------------------------------------------------*
 ***INCLUDE ZFI0002PBO .
 *----------------------------------------------------------------------*
 *&---------------------------------------------------------------------*
@@ -1012,6 +1012,45 @@ CLASS zcl_bp IMPLEMENTATION.
 
       RETURN.
     ENDIF.
+    " Validar NIF1 al ampliar un BP existente
+    IF ls_context-bp_task = gc_task_update.
+
+      " Determinar el tipo fiscal del NIF1
+      DATA(lv_taxtype) = CONV dfkkbptaxnum-taxtype(
+            |{ cs_prov-pais }1| ).
+
+      " Recuperar NIF1 actualmente registrado
+      SELECT SINGLE taxnumxl, taxnum
+      FROM dfkkbptaxnum
+      WHERE partner = @cs_prov-partner
+      AND taxtype = @lv_taxtype
+      INTO @DATA(ls_tax_actual).
+
+      IF sy-subrc = 0.
+
+        " TAXNUMXL tiene prioridad sobre TAXNUM
+        DATA(lv_nif_actual) = COND string(
+              WHEN ls_tax_actual-taxnumxl IS NOT INITIAL
+              THEN CONV string( ls_tax_actual-taxnumxl )
+              ELSE CONV string( ls_tax_actual-taxnum ) ).
+
+        " Solo comparar si el maestro tiene NIF informado
+        IF lv_nif_actual IS NOT INITIAL
+        AND lv_nif_actual <> CONV string( cs_prov-cif ).
+
+          rs_result-success = abap_false.
+          rs_result-MESSAGE =
+          |El NIF1 informado NO coincide con el del BP | &&
+          |{ cs_prov-partner }. NO se permite modificarlo | &&
+          |durante una ampliación.|.
+
+          RETURN.
+
+        ENDIF.
+
+      ENDIF.
+
+    ENDIF.
 
     " Datos centrales
     map_bp_data(
@@ -1025,7 +1064,8 @@ CLASS zcl_bp IMPLEMENTATION.
     CHANGING
       cs_prov = cs_prov
       cs_data = ls_data ).
-
+" Datos centrales: únicamente para BP nuevos
+IF ls_context-bp_task = gc_task_insert.
     " Números fiscales - CIF
     map_tax_numbers(
     CHANGING
@@ -1044,7 +1084,7 @@ CLASS zcl_bp IMPLEMENTATION.
     CHANGING
       cs_prov = cs_prov
       cs_data = ls_data ).
-
+endif.
 *    " Persona de contacto
 *    map_contact_person(
 *    CHANGING
@@ -1151,6 +1191,7 @@ CLASS zcl_bp IMPLEMENTATION.
 *--------------------------------------------------------------------*
   METHOD map_bp_data.
 
+
     " Cabecera
     cs_data-partner-header-object_task = cs_context-bp_task.
     cs_data-partner-header-object_instance-bpartnerguid = cs_context-partner_guid.
@@ -1165,7 +1206,6 @@ CLASS zcl_bp IMPLEMENTATION.
     IF cs_context-bp_task = gc_task_insert.
       cs_data-partner-central_data-common-data-bp_control-category = gc_bp_org.
       cs_data-partner-central_data-common-data-bp_control-grouping = cs_prov-bu_group.
-    ENDIF.
 
     cs_data-partner-central_data-common-data-bp_centraldata-partnertype = cs_prov-bu_group.
     cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = abap_true.
@@ -1175,6 +1215,7 @@ CLASS zcl_bp IMPLEMENTATION.
     cs_data-partner-central_data-common-datax-bp_organization-name2 = abap_true.
     cs_data-partner-central_data-common-data-bp_centraldata-searchterm1 = cs_prov-busq.
     cs_data-partner-central_data-common-datax-bp_centraldata-searchterm1 = abap_true.
+    ENDIF.
 
     cs_data-vendor-header-object_task = cs_context-vendor_task.
 
@@ -1307,17 +1348,24 @@ CLASS zcl_bp IMPLEMENTATION.
     DATA: lv_task      TYPE c LENGTH 1 VALUE gc_task_insert,
           lv_old_value TYPE string.
 
+     CHECK cv_value IS NOT INITIAL.
+
     " Comprobar si esa categoría fiscal ya existe para el BP
     " La clave funcional es:  PARTNER + TAXTYPE
     IF cs_prov-partner IS NOT INITIAL.
 
-      SELECT SINGLE @abap_true
+      SELECT SINGLE taxnumxl, taxnum
       FROM dfkkbptaxnum
       WHERE partner = @cs_prov-partner
       AND taxtype = @cv_taxtype
-      INTO @DATA(lv_exists).
+      INTO @DATA(ls_tax_actual).
 
       IF sy-subrc = 0.
+        " Si ya existe un NIF con valor, no modificarlo
+        IF ls_tax_actual-taxnumxl IS NOT INITIAL OR
+        ls_tax_actual-taxnum IS NOT INITIAL.
+          RETURN.
+        ENDIF.
         lv_task = gc_task_update.
       ENDIF.
     ENDIF.
@@ -1328,7 +1376,6 @@ CLASS zcl_bp IMPLEMENTATION.
     <fs_tax>-data_key-taxtype = cv_taxtype.
 
     IF iv_extended = abap_true.
-
       " Número de identificación fiscal ZFIEPROV-CIF -> TAXNUMXL
       <fs_tax>-data_key-taxnumxl = cv_value.
     ELSE.
@@ -1371,13 +1418,16 @@ CLASS zcl_bp IMPLEMENTATION.
 *    <fs_address>-data-postal-data-str_suppl1 = cs_prov-direc_2.
       <fs_address>-data-postal-data-str_suppl1 = cs_prov-direc+60(40).
       <fs_address>-data-postal-DATAx-str_suppl1 = abap_true.
-    ELSEIF lv_len > 100.
-      <fs_address>-data-postal-data-str_suppl2 = cs_prov-direc+60(40).
+    ENDIF.
+    IF lv_len > 100.
+      <fs_address>-data-postal-data-str_suppl2 = cs_prov-direc+100(40).
       <fs_address>-data-postal-DATAx-str_suppl2 = abap_true.
-    ELSEIF lv_len > 140.
-      <fs_address>-data-postal-data-str_suppl3 = cs_prov-direc+100(40).
+    ENDIF.
+    IF lv_len > 140.
+      <fs_address>-data-postal-data-str_suppl3 = cs_prov-direc+140(40).
       <fs_address>-data-postal-DATAx-str_suppl3 = abap_true.
-    ELSEIF lv_len > 180.
+    ENDIF.
+    IF lv_len > 180.
       <fs_address>-data-postal-data-location = cs_prov-direc+180(40).
       <fs_address>-data-postal-DATAx-location = abap_true.
     ENDIF.
@@ -2537,7 +2587,7 @@ CLASS zcl_bp IMPLEMENTATION.
     " 4. PREPARAR DATOS DEL BP PERSONA
     CLEAR: ls_centraldata, ls_centraldataperson, lv_contact_partner.
     REFRESH: lt_bapi_return.
-
+    ls_centraldata-partnertype = gc_contact_group.
     ls_centraldataperson-lastname = cs_prov-dzsabe_k.
 
     " 5. CREAR BUSINESS PARTNER PERSONA
@@ -2903,183 +2953,84 @@ FORM verif .
 
     ENDIF.
 
-* Mod validación RNC - AS
-    DATA: lc_error TYPE char1,
-          lc_text  TYPE char100,
-          wa_lfa1  LIKE lfa1.
-    CLEAR: lc_error, lc_text, wa_lfa1.
-    IF lt_t_1-cif IS NOT INITIAL AND lt_t_1-pais EQ 'DO'.
-      IF NOT lt_t_1-partner IS INITIAL.
-        SELECT SINGLE *
-                 FROM lfa1
-                WHERE stcd1 = lt_t_1-cif.
-        IF sy-subrc EQ 0.
-          SELECT SINGLE *
-                   FROM lfa1
-                  WHERE stcd1 = lt_t_1-cif AND
-                        lifnr = lt_t_1-partner.
-          IF sy-subrc NE 0.
-            lc_text  = 'El RNC está duplicado, verifíquelo'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ELSE.
-          CALL FUNCTION 'ZVALIDACION_RNC'
-            EXPORTING
-              fisica       = lt_t_1-stkzn
-              nif_g        = lt_t_1-cif
-            IMPORTING
-              nif_correcto = lc_error
-              text2        = lc_text.
-          IF lc_error EQ 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ENDIF.
-      ELSE.
-        SELECT SINGLE *
-         FROM lfa1
-        WHERE stcd1 = lt_t_1-cif.
-        IF sy-subrc = 0.
-          SELECT SINGLE *
-                   FROM lfa1
-                  WHERE stcd1 = lt_t_1-cif AND
-                        lifnr = lt_t_1-partner.
-          IF sy-subrc NE 0.
-            lc_text  = 'El RNC está duplicado, verifíquelo'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ELSE.
-          CALL FUNCTION 'ZVALIDACION_RNC'
-            EXPORTING
-              fisica       = lt_t_1-stkzn
-              nif_g        = lt_t_1-cif
-            IMPORTING
-              nif_correcto = lc_error
-              text2        = lc_text.
-          IF lc_error EQ 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ENDIF.
-      ENDIF.
-    ELSEIF lt_t_1-cif IS NOT INITIAL AND lt_t_1-pais EQ 'MX'.
-      IF NOT lt_t_1-partner IS INITIAL.
-        SELECT SINGLE *
-                 FROM lfa1
-                WHERE stcd1 = lt_t_1-cif.
-        IF sy-subrc EQ 0.
-          SELECT SINGLE *
-                   FROM lfa1
-                  WHERE stcd1 = lt_t_1-cif AND
-                        lifnr = lt_t_1-partner.
-          IF sy-subrc NE 0.
-            lc_text  = 'El RFC está duplicado, verifíquelo'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ENDIF.
-        ELSE.
-          IF NOT lt_t_1-stkzn IS INITIAL AND lt_t_1-stcd3 IS INITIAL.
-            lc_text  = 'Incoherencia con RFC o CURP, persona física'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD3' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ELSE.
-            CALL FUNCTION 'ZVALIDACION_RFC_CURP'
-              EXPORTING
-                fisica       = lt_t_1-stkzn
-                nif_g        = lt_t_1-cif
-                nif_p        = lt_t_1-stcd3
-              IMPORTING
-                nif_correcto = lc_error
-                text2        = lc_text.
-            IF lc_error EQ 'X'.
-              lv_verif = sy-tabix.
-              lv_cursor_field = 'ZFIEPROV-CIF'.
-              PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-              EXIT.
-            ENDIF.
-          ENDIF.
-        ENDIF.
-      ELSE.
-        SELECT SINGLE *
-         FROM lfa1
-        WHERE stcd1 = lt_t_1-cif.
-        IF sy-subrc = 0.
+    " Validación fiscal y duplicados
+    DATA: lv_error     TYPE char1,
+          lv_texto     TYPE char100,
+          lv_duplicado TYPE bu_partner.
 
-          SELECT SINGLE *
-                   FROM lfa1
-                  WHERE stcd1 = lt_t_1-cif
-              AND lifnr = lt_t_1-partner.
+    CLEAR: lv_error, lv_texto, lv_duplicado.
 
-          IF sy-subrc NE 0.
-            lc_text  = 'El RFC está duplicado, verifíquelo'.
-            lc_error = 'X'.
+    CASE lt_t_1-pais.
+
+      WHEN 'MX'.
+
+        " RFC de persona física: comprobar CURP
+        IF strlen( lt_t_1-cif ) = 13.
+
+          IF lt_t_1-stkzn IS INITIAL OR
+          lt_t_1-stcd3 IS INITIAL.
+
             lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
+            lv_cursor_field = 'ZFIEPROV-STCD3'.
+            lv_verif_t = 'Debe informar persona física y CURP'.
             EXIT.
-          ENDIF.
-        ELSE.
-          IF NOT lt_t_1-stkzn IS INITIAL AND lt_t_1-stcd3 IS INITIAL.
-            lc_text  = 'Incoherencia RFC o CURP, persona física'.
-            lc_error = 'X'.
-            lv_verif = sy-tabix.
-            lv_cursor_field = 'ZFIEPROV-CIF'.
-            PERFORM texto_error USING 'STCD3' lc_text CHANGING lv_verif_t.
-            EXIT.
-          ELSE.
-            CALL FUNCTION 'ZVALIDACION_RFC_CURP'
-              EXPORTING
-                fisica       = lt_t_1-stkzn
-                nif_g        = lt_t_1-cif
-                nif_p        = lt_t_1-stcd3
-              IMPORTING
-                nif_correcto = lc_error
-                text2        = lc_text.
-            IF lc_error EQ 'X'.
-              lv_verif = sy-tabix.
-              lv_cursor_field = 'ZFIEPROV-CIF'.
-              PERFORM texto_error USING 'STCD1' lc_text CHANGING lv_verif_t.
-              EXIT.
-            ENDIF.
           ENDIF.
         ENDIF.
-      ENDIF.
+
+        CALL FUNCTION 'ZVALIDACION_RFC_CURP'
+          EXPORTING
+            fisica       = lt_t_1-stkzn
+            nif_g        = lt_t_1-cif
+            nif_p        = lt_t_1-stcd3
+          IMPORTING
+            nif_correcto = lv_error
+            text2        = lv_texto.
+
+      WHEN 'DO'.
+
+        CALL FUNCTION 'ZVALIDACION_RNC'
+          EXPORTING
+            fisica       = lt_t_1-stkzn
+            nif_g        = lt_t_1-cif
+          IMPORTING
+            nif_correcto = lv_error
+            text2        = lv_texto.
+    ENDCASE.
+
+    IF lv_error = 'X'.
+      lv_verif = sy-tabix.
+      lv_cursor_field = 'ZFIEPROV-CIF'.
+      lv_verif_t = lv_texto.
+      EXIT.
     ENDIF.
 
+    " Comprobar duplicados en todos los BP
+    PERFORM validar_nif_duplicado USING lt_t_1  CHANGING lv_duplicado.
+
+    IF lv_duplicado IS NOT INITIAL.
+      lv_verif = sy-tabix.
+      lv_cursor_field = 'ZFIEPROV-CIF'.
+      lv_verif_t = |NIF duplicado en BP { lv_duplicado }|.
+      EXIT.
+    ENDIF.
+
+    " Validación estándar con indicador persona física
     CALL FUNCTION 'TAX_NUMBER_CHECK'
       EXPORTING
         country             = lt_t_1-pais
-        natural_person_flag = ' '
+        natural_person_flag = lt_t_1-stkzn
         tax_code_1          = lt_t_1-cif
+        tax_code_3          = lt_t_1-stcd3
       EXCEPTIONS
         not_valid           = 1
         different_fprcd     = 2
         OTHERS              = 3.
-    IF sy-subrc <> 0.
 
+    IF sy-subrc <> 0.
       lv_verif = sy-tabix.
       lv_cursor_field = 'ZFIEPROV-CIF'.
       PERFORM texto_error USING 'STCD1' TEXT-022 CHANGING lv_verif_t.
       EXIT.
-
     ENDIF.
 
     IF lt_t_1-name1 IS INITIAL.
@@ -3099,25 +3050,34 @@ FORM verif .
       EXIT.
 *Marta: 27.11.2008 - inicio modificación
 *La calle no puede ser mayor de 35 caracteres ya que despues se va al LFA1-SPRAS, eso pasa cuando no hay organización de compras
-    ELSE.
-      DATA: va_num TYPE i.
-
-      SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
-      IF sy-subrc EQ 4.
-        va_num = strlen( lt_t_1-direc ).
-        IF va_num GT 35.
-          DATA(lv_calle_completa) = lt_t_1-direc.
-          CLEAR lt_t_1-direc.
-          lt_t_1-direc = lv_calle_completa+35.
-          lt_t_1-direc_2 = lv_calle_completa(35).
-
-*          lv_verif = sy-tabix.
-*          lv_verif_t = TEXT-002.
-*          EXIT.
-        ENDIF.
-      ENDIF.
+*    ELSE.
+*      DATA: va_num TYPE i.
+*
+*      SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
+*      IF sy-subrc EQ 4.
+*        va_num = strlen( lt_t_1-direc ).
+*        IF va_num GT 35.
+*          DATA(lv_calle_completa) = lt_t_1-direc.
+**          CLEAR lt_t_1-direc.
+**          lt_t_1-direc = lv_calle_completa+35.
+**          lt_t_1-direc_2 = lv_calle_completa(35).
+*
+**          lv_verif = sy-tabix.
+**          lv_verif_t = TEXT-002.
+**          EXIT.
+*        ENDIF.
+*      ENDIF.
 *Marta: 27.11.2008 - fin modificación
 
+    ENDIF.
+
+    IF lt_t_1-smtp IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_cursor_field = 'ZFIEPROV-SMTP'.
+
+      PERFORM texto_error USING 'SMTP_ADDR' TEXT-001 CHANGING lv_verif_t.
+
+      EXIT.
     ENDIF.
 
     IF lt_t_1-cod_post IS INITIAL.
@@ -3246,10 +3206,10 @@ FORM verif .
 *        SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
 *        IF sy-subrc EQ 0.
 **** FIN MODIFICACIÓN EMG 28/04/2008
-          lv_verif = sy-tabix.
-          lv_cursor_field = 'ZFIEPROV-EKORG'.
-          PERFORM texto_error USING 'EKORG' text-001 CHANGING lv_verif_t.
-          EXIT.
+      lv_verif = sy-tabix.
+      lv_cursor_field = 'ZFIEPROV-EKORG'.
+      PERFORM texto_error USING 'EKORG' TEXT-001 CHANGING lv_verif_t.
+      EXIT.
 **** INICIO MODIFICACIÓN EMG 28/04/2008
 *        ENDIF.
 *      ENDIF.
@@ -3719,6 +3679,7 @@ FORM acceso_tablas .
            WHERE  migr EQ 0 AND
                   ( estado EQ 'E' OR ( estado EQ 'P' AND estdes EQ 'C' ) ) AND
                   bukrs IN r_bukrs_aut AND
+                  bukrs IN so_bukrs AND
                   fecha IN so_fecha.
   IF NOT so_estad IS INITIAL.
     LOOP AT lt_t_1 WHERE estado <> so_estad.
@@ -3748,7 +3709,9 @@ FORM acceso_tablas_m .
            INTO CORRESPONDING FIELDS OF TABLE lt_t_1
            WHERE  migr NE 0 AND
                 ( estado EQ 'P' AND
-                  estdes EQ 'C' ) .
+                  estdes EQ 'C' )
+  AND bukrs IN so_bukrs
+  AND bukrs IN r_bukrs_aut.
 
 ENDFORM.                    " ACCESO_TABLAS_M
 *&---------------------------------------------------------------------*
@@ -4641,68 +4604,32 @@ ENDFORM.                    " TR_APROB_SOL
 FORM crea_acreedor_conf_v2 CHANGING l_ok TYPE i
                                  l_ch TYPE i.
 
-  DATA lv_conf(1).
+  CLEAR: l_ok, l_ch, gv_lifnr.
 
-  DATA lv_quest TYPE string.
-
-  IF NOT lt_t_1-partner IS INITIAL.
-
-    SELECT * UP TO 1 ROWS FROM lfa1 WHERE lifnr = lt_t_1-partner.
-    ENDSELECT.
-
-    IF sy-subrc <> 0.
-* No existe el acreedor LIFNR
-      MESSAGE i203(zfi01) WITH lt_t_1-partner.
-      EXIT.
-
-    ELSE.
-* Existe el acreedor LIFNR
-      l_ok = 1.
-      l_ch = 1.
-
-    ENDIF.
-
-  ELSE.
-
-    SELECT * UP TO 1 ROWS FROM lfa1 WHERE stcd1 = lt_t_1-cif.
-    ENDSELECT.
-
-    IF sy-subrc <> 0.
-* No existe acreedor con mismo CIF
-      l_ok = 1.
-
-    ELSE.
-      gv_lifnr = lfa1-lifnr.
-    ENDIF.
-
+  " BP nuevo: duplicados ya validados en VERIF
+  IF lt_t_1-partner IS INITIAL.
+    l_ok = 1.
+    RETURN.
   ENDIF.
 
-  CHECK l_ok IS INITIAL.
-* Existe acreedor con mismo CIF - Confirmación
+  " Validar existencia del BP, no solo del proveedor
+  DATA(lv_partner) = CONV bu_partner(
+        |{ lt_t_1-partner ALPHA = IN }| ).
 
-  MOVE TEXT-016 TO lv_quest.
-  REPLACE '&1' WITH lt_t_1-cif INTO lv_quest.
+  SELECT SINGLE partner
+  FROM but000
+  WHERE partner = @lv_partner
+  INTO @DATA(lv_bp).
 
-  CALL FUNCTION 'POPUP_TO_CONFIRM'
-    EXPORTING
-      titlebar              = TEXT-015
-      text_question         = lv_quest
-      default_button        = '3'
-      display_cancel_button = 'X'
-      start_column          = 25
-      start_row             = 6
-    IMPORTING
-      answer                = lv_conf.
-
-  IF lv_conf = '1'.
-* Se crea un nuevo acreedor
-    l_ok = 1.
-    CLEAR gv_lifnr.
-  ELSEIF lv_conf = '2'.
-    l_ok = 1.
-  ELSEIF lv_conf = 'A'.
-    CLEAR gv_lifnr.
+  IF sy-subrc <> 0.
+    MESSAGE i203(zfi01) WITH lv_partner.
+    RETURN.
   ENDIF.
+
+  " BP existente: ampliar sus datos de proveedor/sociedad
+  lt_t_1-partner = lv_partner.
+  l_ok = 1.
+  l_ch = 1.
 
 ENDFORM.                    " CREA_ACREEDOR_CONF_V2
 *&---------------------------------------------------------------------*
@@ -5338,3 +5265,31 @@ FORM derivar_akont CHANGING cs_prov STRUCTURE zfieprov.
   AND nac_ext  = @ls_ztbp001-nac_ext.
 
 ENDFORM.                    " DERIVAR_AKONT
+
+
+FORM validar_nif_duplicado
+USING    is_prov TYPE zfieprov
+CHANGING cv_duplicado TYPE bu_partner.
+
+  CLEAR cv_duplicado.
+
+  CHECK is_prov-cif IS NOT INITIAL.
+  CHECK is_prov-pais IS NOT INITIAL.
+
+  " Categoría fiscal: MX1, DO1, etc.
+  DATA(lv_taxtype) = CONV dfkkbptaxnum-taxtype(
+        |{ is_prov-pais }1| ).
+
+  DATA(lv_partner) = CONV bu_partner(
+        |{ is_prov-partner ALPHA = IN }| ).
+
+  " Buscar entre todos los BP, excluyendo el actual
+  SELECT SINGLE partner
+  FROM dfkkbptaxnum
+  WHERE taxtype = @lv_taxtype
+  AND ( taxnumxl = @is_prov-cif
+  OR taxnum   = @is_prov-cif )
+  AND partner <> @lv_partner
+  INTO @cv_duplicado.
+
+ENDFORM.
