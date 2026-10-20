@@ -9,7 +9,7 @@ INCLUDE ZFI0002TOP.
 INCLUDE ZFI0002PBO.
 INCLUDE ZFI0002PAI.
 INCLUDE ZFI0002FRM.
-*************************************************************************
+
 *&---------------------------------------------------------------------*
 *& Include ZFI0002TOP                                        Modulpool        ZFI0002
 *&
@@ -102,7 +102,15 @@ DATA:
   LV_CONFIRM TYPE I,
   LV_VERIF_T(80).
 
-************************************************************************  
+
+" Datos originales recuperados por cada fila del Table Control
+TYPES: BEGIN OF ty_bp_recuperado,
+  partner TYPE bu_partner,
+  datos   TYPE zfieprov,
+END OF ty_bp_recuperado.
+
+DATA gt_bp_recuperado TYPE STANDARD TABLE OF ty_bp_recuperado WITH EMPTY KEY.
+
 *----------------------------------------------------------------------*
 ***INCLUDE ZFI0002PBO .
 *----------------------------------------------------------------------*
@@ -140,6 +148,12 @@ MODULE init_proceso OUTPUT.
     CLEAR lv_cursor.
     CLEAR lv_cursor_field.
   ENDIF.
+
+  " Mantener una entrada de control por cada fila
+  WHILE LINES( gt_bp_recuperado ) < LINES( lt_t_1 ).
+    APPEND INITIAL LINE TO gt_bp_recuperado.
+  ENDWHILE.
+
 ENDMODULE.                 " INIT_PROCESO  OUTPUT
 
 *&---------------------------------------------------------------------*
@@ -184,6 +198,54 @@ MODULE set_value OUTPUT.
 *    ENDIF.
 *    MODIFY SCREEN.
 *   endloop.
+  " Recuperar la fila que se está mostrando
+  READ TABLE lt_t_1
+  INDEX t_1-current_line
+  INTO DATA(ls_fila).
+
+  IF sy-subrc <> 0.
+    RETURN.
+  ENDIF.
+
+  " Recuperar los valores originales de esa misma fila
+  READ TABLE gt_bp_recuperado INDEX t_1-current_line
+  INTO DATA(ls_bp).
+
+  IF sy-subrc <> 0.
+    RETURN.
+  ENDIF.
+
+  " Determinar si existe una recuperación válida
+  DATA(lv_recuperado) = xsdbool(
+        ls_bp-partner IS NOT INITIAL
+        AND ls_bp-partner = ls_fila-partner ).
+
+  LOOP AT SCREEN.
+
+    " Solo campos pertenecientes a datos generales del BP
+    CHECK SCREEN-group1 = 'BPG'
+    AND SCREEN-name CP 'ZFIEPROV-*'.
+
+    " Estos campos del grupo se consideran editables por defecto
+    SCREEN-INPUT = 1.
+
+    IF lv_recuperado = abap_true.
+
+      SPLIT SCREEN-name AT '-'
+      INTO DATA(lv_estructura) DATA(lv_campo).
+
+      " Consultar el valor ORIGINAL, no el actual
+      ASSIGN COMPONENT lv_campo OF STRUCTURE ls_bp-datos
+      TO FIELD-SYMBOL(<lv_valor>).
+
+      IF sy-subrc = 0 AND <lv_valor> IS NOT INITIAL.
+
+        " Si originalmente tenía valor, bloquear
+        SCREEN-INPUT = 0.
+      ENDIF.
+    ENDIF.
+    MODIFY SCREEN.
+  ENDLOOP.
 ENDMODULE.                 " set_value  OUTPUT
 
 *&---------------------------------------------------------------------*
@@ -343,7 +405,7 @@ MODULE pfstatus_d1215 OUTPUT.
                           USING '215Z' ' '.                "MDT 28.12.98
   ENDIF.
 ENDMODULE.                    "pfstatus_d1215 OUTPUT
-***************************************************************************
+
 *----------------------------------------------------------------------*
 ***INCLUDE ZFI0002PAI .
 *----------------------------------------------------------------------*
@@ -388,60 +450,188 @@ ENDMODULE.                 " EXIT_COMMAND_9001  INPUT
 *       text
 *----------------------------------------------------------------------*
 MODULE tratar_datos INPUT.
-  DATA lv_adrnr LIKE lfa1-adrnr.
-  IF zfieprov-partner IS NOT INITIAL AND lv_acre IS INITIAL.
-    SELECT SINGLE ktokk
-                  stcd1
-                  name1
-                  name2
-                  stras
-                  pstlz
-                  ort01
-                  land1
-                  regio
-                  spras
-                  telf1
-                  telfx
-                  lfurl
-                  adrnr
-                  konzs
-        FROM lfa1
-        INTO (zfieprov-bu_group,
-              zfieprov-cif,
-              zfieprov-name1,
-              zfieprov-name2,
-              zfieprov-direc,
-              zfieprov-cod_post,
-              zfieprov-poblac,
-              zfieprov-pais,
-              zfieprov-region,
-              zfieprov-spras,
-              zfieprov-tel,
-              zfieprov-fax,
-              zfieprov-smtp,
-              lv_adrnr,
-              zfieprov-c_fisc_mx )
-          WHERE lifnr = zfieprov-partner.
+*  IF zfieprov-partner IS NOT INITIAL AND lv_acre IS INITIAL.
+*    SELECT SINGLE ktokk
+*                  stcd1
+*                  name1
+*                  name2
+*                  stras
+*                  pstlz
+*                  ort01
+*                  land1
+*                  regio
+*                  spras
+*                  telf1
+*                  telfx
+*                  lfurl
+*                  adrnr
+*                  konzs
+*        FROM lfa1
+*        INTO (zfieprov-bu_group,
+*              zfieprov-cif,
+*              zfieprov-name1,
+*              zfieprov-name2,
+*              zfieprov-direc,
+*              zfieprov-cod_post,
+*              zfieprov-poblac,
+*              zfieprov-pais,
+*              zfieprov-region,
+*              zfieprov-spras,
+*              zfieprov-tel,
+*              zfieprov-fax,
+*              zfieprov-smtp,
+*              lv_adrnr,
+*              zfieprov-c_fisc_mx )
+*          WHERE lifnr = zfieprov-partner.
+*    IF sy-subrc <> 0.
+*      CLEAR lv_acre.
+*      MESSAGE w203(zfi01).
+*    ELSE.
+*      lv_acre = 'X'.
+*      SELECT SINGLE str_suppl1 FROM adrc INTO zfieprov-direc_2
+*                    WHERE addrnumber = lv_adrnr.
+*      SELECT SINGLE name1 FROM knvk INTO zfieprov-dzsabe_k
+*                    WHERE lifnr = zfieprov-partner.
+*      SELECT SINGLE zterm zwels FROM lfb1
+*                    INTO (zfieprov-zterm, zfieprov-zwels)
+*                    WHERE lifnr = zfieprov-partner AND
+*                          bukrs = '5000'.
+*      IF sy-subrc <> 0.
+*        SELECT SINGLE zterm zwels FROM lfb1
+*                   INTO (zfieprov-zterm, zfieprov-zwels)
+*                   WHERE lifnr = zfieprov-partner.
+*      ENDIF.
+*    ENDIF.
+*  ENDIF.
+
+  DATA lv_adrnr TYPE lfa1-adrnr.
+
+  " Localizar el control de la fila actual
+  READ TABLE gt_bp_recuperado INDEX t_1-current_line
+  ASSIGNING FIELD-SYMBOL(<ls_bp>).
+
+  IF sy-subrc <> 0.
+    RETURN.
+  ENDIF.
+
+  DATA(lv_partner) = CONV bu_partner(
+        |{ zfieprov-partner ALPHA = IN }| ).
+
+  IF lv_partner IS INITIAL.
+
+    " Sin BP: no hay datos recuperados que proteger
+    CLEAR <ls_bp>.
+
+  ELSEIF <ls_bp>-partner <> lv_partner.
+
+    " BP diferente: descartar la recuperación anterior
+    CLEAR: <ls_bp>, lv_adrnr.
+
+    " Recuperación existente de datos generales
+    SELECT SINGLE
+    ktokk, stcd1, name1, name2,
+    stras, pstlz, ort01, land1,
+    regio, spras, telf1, telfx,
+    adrnr, konzs, stcd3, stkzn
+    FROM lfa1
+    WHERE lifnr = @lv_partner
+    INTO ( @zfieprov-bu_group,
+    @zfieprov-cif,
+    @zfieprov-name1,
+    @zfieprov-name2,
+    @zfieprov-direc,
+    @zfieprov-cod_post,
+    @zfieprov-poblac,
+    @zfieprov-pais,
+    @zfieprov-region,
+    @zfieprov-spras,
+    @zfieprov-tel,
+    @zfieprov-fax,
+    @lv_adrnr,
+    @zfieprov-c_fisc_mx,
+    @zfieprov-stcd3,
+    @zfieprov-stkzn ).
+
     IF sy-subrc <> 0.
-      CLEAR lv_acre.
+
       MESSAGE w203(zfi01).
+
     ELSE.
-      lv_acre = 'X'.
-      SELECT SINGLE str_suppl1 FROM adrc INTO zfieprov-direc_2
-                    WHERE addrnumber = lv_adrnr.
-      SELECT SINGLE name1 FROM knvk INTO zfieprov-dzsabe_k
-                    WHERE lifnr = zfieprov-partner.
-      SELECT SINGLE zterm zwels FROM lfb1
-                    INTO (zfieprov-zterm, zfieprov-zwels)
-                    WHERE lifnr = zfieprov-partner AND
-                          bukrs = '5000'.
+
+      " Recuperar datos adicionales de dirección
+      SELECT SINGLE str_suppl1
+      FROM adrc
+      WHERE addrnumber = @lv_adrnr
+      INTO @zfieprov-direc_2.
+
+      " Recuperar correo principal desde ADR6
+      CLEAR zfieprov-smtp.
+
+      SELECT SINGLE smtp_addr
+      FROM adr6
+      WHERE addrnumber = @lv_adrnr
+      AND persnumber = @space
+      AND flgdefault = @abap_true
+      INTO @zfieprov-smtp.
+
+      " Recuperar ramo predeterminado
+      CLEAR zfieprov-brsch.
+
+      SELECT SINGLE ind_sector
+      FROM but0is
+      WHERE partner = @lv_partner
+      AND isdef = @abap_true
+      INTO @zfieprov-brsch.
+
+      " Persona de contacto
+      SELECT SINGLE name1
+      FROM knvk
+      WHERE lifnr = @lv_partner
+      INTO @zfieprov-dzsabe_k.
+
+      " Datos de sociedad
+      SELECT SINGLE zterm, zwels
+      FROM lfb1
+      WHERE lifnr = @lv_partner
+*      AND bukrs = '5000'
+      INTO ( @zfieprov-zterm, @zfieprov-zwels ).
+
       IF sy-subrc <> 0.
-        SELECT SINGLE zterm zwels FROM lfb1
-                   INTO (zfieprov-zterm, zfieprov-zwels)
-                   WHERE lifnr = zfieprov-partner.
+        SELECT SINGLE zterm, zwels
+        FROM lfb1
+        WHERE lifnr = @lv_partner
+        INTO ( @zfieprov-zterm, @zfieprov-zwels ).
       ENDIF.
+
+      " Registrar BP recuperado
+      <ls_bp>-partner = lv_partner.
+
+      " Guardar SOLO valores procedentes de la recuperación
+      <ls_bp>-datos = VALUE #(
+      bu_group  = zfieprov-bu_group
+      cif       = zfieprov-cif
+      stcd3     = zfieprov-stcd3
+      stkzn     = zfieprov-stkzn
+      name1     = zfieprov-name1
+      name2     = zfieprov-name2
+      direc     = zfieprov-direc
+      direc_2   = zfieprov-direc_2
+      cod_post  = zfieprov-cod_post
+      poblac    = zfieprov-poblac
+      pais      = zfieprov-pais
+      region    = zfieprov-region
+      spras     = zfieprov-spras
+      tel       = zfieprov-tel
+      fax       = zfieprov-fax
+      smtp      = zfieprov-smtp
+      brsch     = zfieprov-brsch
+      c_fisc_mx = zfieprov-c_fisc_mx
+      dzsabe_k  = zfieprov-dzsabe_k ).
+
     ENDIF.
   ENDIF.
+
+  " Actualizar únicamente la fila procesada
   MODIFY lt_t_1 FROM zfieprov INDEX t_1-current_line.
 
 ENDMODULE.                 " TRATAR_DATOS  INPUT
@@ -581,69 +771,75 @@ ENDMODULE.                 " TCTRL_ZAHLWEGE_BLAETTERN  INPUT
 MODULE valida_nif INPUT.
 *  valida curp
 
-
-  DATA: text1  TYPE char100,
-        text2  TYPE char100,
-        valido TYPE char1.
-
-  CLEAR: text1, text2, valido.
-*valida curp
-  DATA: lv_tamano TYPE i.
+  DATA: lv_tamano       TYPE i,
+        lv_valido       TYPE char1,
+        lv_text1        TYPE char100,
+        lv_text2        TYPE char100,
+        lv_bp_duplicado TYPE bu_partner.
+  CLEAR: lv_valido, lv_text1, lv_text2, lv_bp_duplicado.
+  " Normalizar NIF
   CONDENSE zfieprov-cif NO-GAPS.
+
+  " Actualizar la fila del Table Control
   MODIFY lt_t_1 FROM zfieprov INDEX t_1-current_line.
+
 *  DESCRIBE FIELD zfieprov-cif LENGTH lv_tamano in character mode.
-  lv_tamano = STRLEN( zfieprov-cif ).
+  lv_tamano = strlen( zfieprov-cif ).
   IF lv_tamano EQ 13 AND zfieprov-stcd3 IS INITIAL."pedimos el curp.
-
     MESSAGE e368(00) WITH 'Debe de capturar CURP en campo NIF 3'.
-
-
   ENDIF.
-
   IF lv_tamano EQ 13 AND zfieprov-stcd3 IS NOT INITIAL AND
     zfieprov-stkzn EQ space."pedimos marca persona fisica
-
     MESSAGE e368(00) WITH 'Debe de capturar indicador persona fisica'.
-
-
   ENDIF.
 *  usar validacion igual que la transaccion standard
 *  aayala 02-01-2012
   IF zfieprov-pais EQ 'MX'.
-    SELECT SINGLE *
-             FROM lfa1
-            WHERE stcd1 = zfieprov-cif.
-    IF sy-subrc = 0.
-      SELECT SINGLE *
-               FROM lfb1
-              WHERE bukrs = zfieprov-bukrs AND
-                    lifnr = lfa1-lifnr.
-      IF sy-subrc = 0.
-        text1 = 'Error en RFC'.
-        text2 = 'El RFC está duplicado, verifíquelo'.
-        valido = 'X'.
-      ENDIF.
-    ELSE.
+*    SELECT SINGLE *
+*             FROM lfa1
+*            WHERE stcd1 = zfieprov-cif.
+*    IF sy-subrc = 0.
+*      SELECT SINGLE *
+*               FROM lfb1
+*              WHERE bukrs = zfieprov-bukrs AND
+*                    lifnr = lfa1-lifnr.
+*      IF sy-subrc = 0.
+*        text1 = 'Error en RFC'.
+*        text2 = 'El RFC está duplicado, verifíquelo'.
+*        valido = 'X'.
+*      ENDIF.
+*    ELSE.
 *     -- validar RFC o CURP
-      CALL FUNCTION 'ZVALIDACION_RFC_CURP'
-        EXPORTING
-          fisica       = zfieprov-stkzn
-          nif_g        = zfieprov-cif
-          nif_p        = zfieprov-stcd3
-        IMPORTING
-          nif_correcto = valido
-          text1        = text1
-          text2        = text2.
-    ENDIF.
+    CALL FUNCTION 'ZVALIDACION_RFC_CURP'
+      EXPORTING
+        fisica       = zfieprov-stkzn
+        nif_g        = zfieprov-cif
+        nif_p        = zfieprov-stcd3
+      IMPORTING
+        nif_correcto = lv_valido
+        text1        = lv_text1
+        text2        = lv_text2.
+*    ENDIF.
 
-    IF valido EQ 'X'.
-      MESSAGE e368(00) WITH text1 text2.
-
+    IF lv_valido EQ 'X'.
+      MESSAGE e368(00) WITH lv_text1 lv_text2.
     ENDIF.
   ENDIF.
 
+  " Validar duplicados para cualquier país
+  " Busca en DFKKBPTAXNUM por tipo de NIF
+  " y excluye el BP actual cuando es una ampliación
+  PERFORM validar_nif_duplicado
+  USING    zfieprov
+  CHANGING lv_bp_duplicado.
+
+  IF lv_bp_duplicado IS NOT INITIAL.
+    MESSAGE e368(00)
+    WITH 'NIF duplicado en BP' lv_bp_duplicado.
+  ENDIF.
+
 ENDMODULE.                 " VALIDA_NIF  INPUT
-****************************************************************
+
 *----------------------------------------------------------------------*
 ***INCLUDE ZFI0002FRM .
 *----------------------------------------------------------------------*
@@ -684,6 +880,7 @@ FORM tr_crear .
 
   CLEAR lt_t_1.
   APPEND lt_t_1.
+  APPEND INITIAL LINE TO gt_bp_recuperado.
 
 ENDFORM.                    " TR_CREAR
 *&---------------------------------------------------------------------*
@@ -726,6 +923,7 @@ FORM tr_grabar .
     zfitprov-cod_int = lv_cod_int.
     INSERT zfitprov.
     DELETE lt_t_1 INDEX lv_index.
+    DELETE gt_bp_recuperado INDEX lv_index.
     lv_mes = 1.
 
   ENDLOOP.
@@ -761,6 +959,7 @@ FORM tr_borrar .
 
     lv_index = sy-tabix.
     DELETE lt_t_1 INDEX lv_index.
+    DELETE gt_bp_recuperado INDEX lv_index.
     lv_mes = 1.
 
   ENDLOOP.
@@ -873,8 +1072,9 @@ FORM verif .
     CALL FUNCTION 'TAX_NUMBER_CHECK'
       EXPORTING
         country             = lt_t_1-pais
-        natural_person_flag = ' '
+        natural_person_flag = lt_t_1-stkzn
         tax_code_1          = lt_t_1-cif
+        tax_code_3          = lt_t_1-stcd3
       EXCEPTIONS
         not_valid           = 1
         different_fprcd     = 2
@@ -905,25 +1105,35 @@ FORM verif .
       EXIT.
 *Marta: 29.10.2008 - inicio mofidifación
 *La calle no puede ser mayor de 35 caracteres ya que despues se va al LFA1-SPRAS, eso pasa cuando no hay organización de compras
-    ELSE.
-      DATA: va_num TYPE i.
-
-      SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
-      IF sy-subrc EQ 4.
-        va_num = strlen( lt_t_1-direc ).
-        IF va_num GT 35.
-          DATA(lv_calle_completa) = lt_t_1-direc.
-*          CLEAR lt_t_1-direc.
-*          lt_t_1-direc = lv_calle_completa+35.
-*          lt_t_1-direc_2 = lv_calle_completa(35).
-
-*          lv_verif = sy-tabix.
-*          lv_verif_t = text-002.
-        ENDIF.
-      ENDIF.
-      EXIT.
+*    ELSE.
+*      DATA: va_num TYPE i.
+*
+*      SELECT COUNT(*) FROM t024w WHERE werks EQ lt_t_1-bukrs.
+*      IF sy-subrc EQ 4.
+*        va_num = strlen( lt_t_1-direc ).
+*        IF va_num GT 35.
+*          DATA(lv_calle_completa) = lt_t_1-direc.
+**          CLEAR lt_t_1-direc.
+**          lt_t_1-direc = lv_calle_completa+35.
+**          lt_t_1-direc_2 = lv_calle_completa(35).
+*
+**          lv_verif = sy-tabix.
+**          lv_verif_t = text-002.
+*        ENDIF.
+*      ENDIF.
+*      EXIT.
 
 *Marta: 29.10.2008 - fin modificación
+    ENDIF.
+
+    IF lt_t_1-smtp IS INITIAL.
+      lv_verif = sy-tabix.
+      lv_cursor_field = 'ZFIEPROV-SMTP'.
+
+      PERFORM texto_error
+      USING 'SMTP_ADDR' TEXT-001
+      CHANGING lv_verif_t.
+      EXIT.
     ENDIF.
 
     IF lt_t_1-cod_post IS INITIAL.
@@ -1131,6 +1341,7 @@ FORM tr_enviar_conf .
     zfitprov-estado = 'E'.
     INSERT zfitprov.
     DELETE lt_t_1 INDEX lv_index.
+    DELETE gt_bp_recuperado INDEX lv_index.
 
   ENDLOOP.
 
@@ -1400,4 +1611,79 @@ MODULE okcode_enter INPUT.
     CLEAR ok-code.
   ENDIF.
 ENDMODULE.                 " OKCODE_ENTER  INPUT
-*****************************************************************************
+
+
+
+FORM recuperar_datos_bp CHANGING cs_prov TYPE zfieprov.
+
+  DATA(lv_partner) = CONV bu_partner(
+        |{ cs_prov-partner ALPHA = IN }| ).
+
+  DATA(lv_taxtype) = CONV dfkkbptaxnum-taxtype(
+        |{ cs_prov-pais }1| ).
+
+  " Recuperar NIF1 según categoría fiscal
+  SELECT SINGLE taxnumxl, taxnum
+  FROM dfkkbptaxnum
+  WHERE partner = @lv_partner
+  AND taxtype = @lv_taxtype
+  INTO @DATA(ls_tax).
+
+  IF sy-subrc = 0.
+    cs_prov-cif = COND #(
+    WHEN ls_tax-taxnumxl IS NOT INITIAL
+    THEN ls_tax-taxnumxl
+    ELSE ls_tax-taxnum ).
+  ENDIF.
+
+  " Recuperar ramo predeterminado del BP
+  SELECT SINGLE ind_sector
+  FROM but0is
+  WHERE partner = @lv_partner
+  AND isdef = @abap_true
+  INTO @cs_prov-brsch.
+
+  " Recuperar dirección del proveedor
+  SELECT SINGLE adrnr
+  FROM lfa1
+  WHERE lifnr = @lv_partner
+  INTO @DATA(lv_adrnr).
+
+  " Recuperar correo electrónico principal
+  IF lv_adrnr IS NOT INITIAL.
+    SELECT SINGLE smtp_addr
+    FROM adr6
+    WHERE addrnumber = @lv_adrnr
+    AND persnumber = @space
+    AND flgdefault = @abap_true
+    INTO @cs_prov-smtp.
+  ENDIF.
+
+ENDFORM.
+
+FORM validar_nif_duplicado
+USING    is_prov TYPE zfieprov
+CHANGING cv_duplicado TYPE bu_partner.
+
+  CLEAR cv_duplicado.
+
+  CHECK is_prov-cif IS NOT INITIAL.
+  CHECK is_prov-pais IS NOT INITIAL.
+
+  " Misma categoría que utiliza ZFI0009
+  DATA(lv_taxtype) = CONV dfkkbptaxnum-taxtype(
+        |{ is_prov-pais }1| ).
+
+  " Excluir el BP actual durante una ampliación
+  DATA(lv_partner) = CONV bu_partner(
+        |{ is_prov-partner ALPHA = IN }| ).
+
+  SELECT SINGLE partner
+  FROM dfkkbptaxnum
+  WHERE taxtype = @lv_taxtype
+  AND ( taxnumxl = @is_prov-cif
+  OR taxnum   = @is_prov-cif )
+  AND partner <> @lv_partner
+  INTO @cv_duplicado.
+
+ENDFORM.
