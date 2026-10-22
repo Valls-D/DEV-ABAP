@@ -1039,7 +1039,7 @@ CLASS zcl_bp IMPLEMENTATION.
         AND lv_nif_actual <> CONV string( cs_prov-cif ).
 
           rs_result-success = abap_false.
-          rs_result-MESSAGE =
+          rs_result-message =
           |El NIF1 informado NO coincide con el del BP | &&
           |{ cs_prov-partner }. NO se permite modificarlo | &&
           |durante una ampliación.|.
@@ -1064,8 +1064,8 @@ CLASS zcl_bp IMPLEMENTATION.
     CHANGING
       cs_prov = cs_prov
       cs_data = ls_data ).
-" Datos centrales: únicamente para BP nuevos
-IF ls_context-bp_task = gc_task_insert.
+    " Datos centrales: únicamente para BP nuevos
+*IF ls_context-bp_task = gc_task_insert.
     " Números fiscales - CIF
     map_tax_numbers(
     CHANGING
@@ -1084,7 +1084,7 @@ IF ls_context-bp_task = gc_task_insert.
     CHANGING
       cs_prov = cs_prov
       cs_data = ls_data ).
-endif.
+*endif.
 *    " Persona de contacto
 *    map_contact_person(
 *    CHANGING
@@ -1207,34 +1207,46 @@ endif.
       cs_data-partner-central_data-common-data-bp_control-category = gc_bp_org.
       cs_data-partner-central_data-common-data-bp_control-grouping = cs_prov-bu_group.
 
-    cs_data-partner-central_data-common-data-bp_centraldata-partnertype = cs_prov-bu_group.
-    cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = abap_true.
-    cs_data-partner-central_data-common-data-bp_organization-name1 = cs_prov-name1.
-    cs_data-partner-central_data-common-datax-bp_organization-name1 =  abap_true.
-    cs_data-partner-central_data-common-data-bp_organization-name2 = cs_prov-name2.
-    cs_data-partner-central_data-common-datax-bp_organization-name2 = abap_true.
-    cs_data-partner-central_data-common-data-bp_centraldata-searchterm1 = cs_prov-busq.
-    cs_data-partner-central_data-common-datax-bp_centraldata-searchterm1 = abap_true.
+      cs_data-partner-central_data-common-data-bp_centraldata-partnertype = cs_prov-bu_group.
+      cs_data-partner-central_data-common-datax-bp_centraldata-partnertype = abap_true.
+      cs_data-partner-central_data-common-data-bp_organization-name1 = cs_prov-name1.
+      cs_data-partner-central_data-common-datax-bp_organization-name1 =  abap_true.
+      cs_data-partner-central_data-common-data-bp_organization-name2 = cs_prov-name2.
+      cs_data-partner-central_data-common-datax-bp_organization-name2 = abap_true.
+      cs_data-partner-central_data-common-data-bp_organization-name3 = cs_prov-name3.
+      cs_data-partner-central_data-common-datax-bp_organization-name3 = abap_true.
+      cs_data-partner-central_data-common-data-bp_centraldata-searchterm1 = cs_prov-busq.
+      cs_data-partner-central_data-common-datax-bp_centraldata-searchterm1 = abap_true.
+    ENDIF.
+    " Indicador fiscal de persona física del BP Se informa durante la creación de un BP nuevo
+    IF cs_context-bp_task = gc_task_insert.
+      IF cs_prov-stkzn = abap_true.
+        cs_data-partner-central_data-taxnumber-common-data-nat_person = abap_true.
+        " Marcar explícitamente el campo para actualización
+        cs_data-partner-central_data-taxnumber-common-datax-nat_person = abap_true.
+      ENDIF.
     ENDIF.
 
     cs_data-vendor-header-object_task = cs_context-vendor_task.
 
-    IF cs_prov-partner IS NOT INITIAL.
-      cs_data-vendor-header-object_instance-lifnr = cs_prov-partner.
-    ENDIF.
-    IF cs_prov-c_fisc_mx IS NOT INITIAL.
-      cs_data-vendor-central_data-central-data-konzs = cs_prov-c_fisc_mx.
-      cs_data-vendor-central_data-central-datax-konzs = abap_true.
-    ENDIF.
+    IF cs_context-vendor_task = gc_task_insert.
+      IF cs_prov-partner IS NOT INITIAL.
+        cs_data-vendor-header-object_instance-lifnr = cs_prov-partner.
+      ENDIF.
+      IF cs_prov-c_fisc_mx IS NOT INITIAL.
+        cs_data-vendor-central_data-central-data-konzs = cs_prov-c_fisc_mx.
+        cs_data-vendor-central_data-central-datax-konzs = abap_true.
+      ENDIF.
 
-    IF cs_prov-rcomp IS NOT INITIAL.
-      cs_data-vendor-central_data-central-data-vbund = cs_prov-rcomp.
-      cs_data-vendor-central_data-central-datax-vbund = abap_true.
-    ENDIF.
+      IF cs_prov-rcomp IS NOT INITIAL.
+        cs_data-vendor-central_data-central-data-vbund = cs_prov-rcomp.
+        cs_data-vendor-central_data-central-datax-vbund = abap_true.
+      ENDIF.
 
-    IF cs_prov-stkzn IS NOT INITIAL.
-      cs_data-vendor-central_data-central-data-stkzn = cs_prov-stkzn.
-      cs_data-vendor-central_data-central-datax-stkzn = abap_true.
+      IF cs_prov-stkzn IS NOT INITIAL.
+        cs_data-vendor-central_data-central-data-stkzn = cs_prov-stkzn.
+        cs_data-vendor-central_data-central-datax-stkzn = abap_true.
+      ENDIF.
     ENDIF.
 
   ENDMETHOD.
@@ -1309,9 +1321,15 @@ endif.
       CLEAR: lv_cif.
       lv_cif = CONV string( cs_prov-cif ).
 
+      " Persona física con NIF1 y NIF3: REVISAR
+      " utilizar TAXNUMBER en lugar de TAXNUMXL
+      DATA(lv_extended) = xsdbool(
+            cs_prov-stkzn <> abap_true
+            OR cs_prov-stcd3 IS INITIAL ).
+
       map_tax_number(
       EXPORTING
-        iv_extended = abap_true
+        iv_extended = lv_extended
       CHANGING
         cs_prov     = cs_prov
         cv_taxtype  = lv_taxtype1
@@ -1348,7 +1366,7 @@ endif.
     DATA: lv_task      TYPE c LENGTH 1 VALUE gc_task_insert,
           lv_old_value TYPE string.
 
-     CHECK cv_value IS NOT INITIAL.
+    CHECK cv_value IS NOT INITIAL.
 
     " Comprobar si esa categoría fiscal ya existe para el BP
     " La clave funcional es:  PARTNER + TAXTYPE
@@ -2497,7 +2515,10 @@ endif.
       lv_contact_partner   TYPE bu_partner,
       lv_nrrng             TYPE tb001-nrrng,
       lv_externind         TYPE nriv-externind,
-      lv_message           TYPE string.
+      lv_message           TYPE string,
+      ls_contact_address   TYPE bapibus1006_address,
+      lt_contact_phone     TYPE STANDARD TABLE OF bapiadtel WITH EMPTY KEY,
+      lt_contact_email     TYPE STANDARD TABLE OF bapiadsmtp  WITH EMPTY KEY.
 
     rs_result-success = abap_true.
 
@@ -2590,6 +2611,25 @@ endif.
     ls_centraldata-partnertype = gc_contact_group.
     ls_centraldataperson-lastname = cs_prov-dzsabe_k.
 
+    " Copiar teléfono del BP organización
+    IF cs_prov-tel IS NOT INITIAL.
+
+      APPEND VALUE #(
+      telephone = cs_prov-tel
+      country   = cs_prov-pais
+      std_no    = abap_true
+      ) TO lt_contact_phone.
+    ENDIF.
+
+    " Copiar email del BP organización
+    IF cs_prov-smtp IS NOT INITIAL.
+
+      APPEND VALUE #(
+      e_mail = cs_prov-smtp
+      std_no = abap_true
+      ) TO lt_contact_email.
+    ENDIF.
+
     " 5. CREAR BUSINESS PARTNER PERSONA
     " CATEGORY = 1  -> Persona
     " GROUP    = ZPDC
@@ -2599,9 +2639,12 @@ endif.
         partnergroup      = gc_contact_group
         centraldata       = ls_centraldata
         centraldataperson = ls_centraldataperson
+        addressdata       = ls_contact_address
       IMPORTING
         businesspartner   = lv_contact_partner
       TABLES
+        telefondata       = lt_contact_phone
+        e_maildata        = lt_contact_email
         return            = lt_bapi_return.
 
     " 6. EVALUAR RESULTADO DE LA CREACIÓN
@@ -2698,8 +2741,10 @@ CHANGING
   cv_partner TYPE bu_partner
   cv_message TYPE string.
 
-  DATA: lo_bp     TYPE REF TO zcl_bp,
-        ls_result TYPE ty_result.
+  DATA: lo_bp        TYPE REF TO zcl_bp,
+        ls_result    TYPE ty_result,
+        " Identificar si la API ya ha devuelto algún error
+        lv_error_log TYPE abap_bool VALUE abap_false.
 
   CLEAR: cv_success, cv_partner, cv_message.
 
@@ -2728,9 +2773,65 @@ CHANGING
       lt_log-msgv4  = <fs_message>-message_v4.
 
       APPEND lt_log.
+      " Controlar errores que ya están en el log
+      IF <fs_message>-type CA 'EAX'.
+        lv_error_log = abap_true.
+      ENDIF.
     ENDLOOP.
   ENDLOOP.
 
+  " Si MAINTAIN_BP falló antes de ejecutar la API,
+  " añadir el mensaje directamente al log
+  IF cv_success = abap_false AND lv_error_log = abap_false.
+
+    REFRESH: lt_log.
+
+    lt_log-msgid  = '00'.
+    lt_log-msgtyp = 'E'.
+    lt_log-msgnr  = '398'.
+
+    DATA(lv_texto) = COND string(
+          WHEN cv_message IS NOT INITIAL
+          THEN cv_message
+          ELSE 'Error al mantener el Business Partner' ).
+
+    " Repartir el texto entre MSGV1...MSGV4
+    DATA lv_offset TYPE i VALUE 0.
+
+    DO 4 TIMES.
+
+      IF lv_offset >= strlen( lv_texto ).
+        EXIT.
+      ENDIF.
+
+      DATA(lv_longitud) = COND i(
+            WHEN strlen( lv_texto ) - lv_offset > 50
+            THEN 50
+            ELSE strlen( lv_texto ) - lv_offset ).
+
+      DATA(lv_parte) = substring(
+            val = lv_texto
+            off = lv_offset
+            len = lv_longitud ).
+
+      CASE sy-index.
+        WHEN 1.
+          lt_log-msgv1 = lv_parte.
+        WHEN 2.
+          lt_log-msgv2 = lv_parte.
+        WHEN 3.
+          lt_log-msgv3 = lv_parte.
+        WHEN 4.
+          lt_log-msgv4 = lv_parte.
+      ENDCASE.
+
+      lv_offset += lv_longitud.
+
+    ENDDO.
+
+    APPEND lt_log.
+
+  ENDIF.
 
 ENDFORM.
 
